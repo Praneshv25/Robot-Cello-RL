@@ -146,8 +146,7 @@ class EnvVarManager:
         if not self.selected_var:
             return
         new_value = simpledialog.askstring("Set Value",
-                                           f"Enter value for {
-                                               self.selected_var}:",
+                                           f"Enter value for {self.selected_var}:",
                                            initialvalue=self.env_dict[
                                                self.selected_var
                                            ])
