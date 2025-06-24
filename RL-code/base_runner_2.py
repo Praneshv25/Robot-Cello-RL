@@ -42,6 +42,7 @@ def calculate_rotations(from_rot, to_rot, duration):
     calculate the interpolated rotation between two rotation values given a number of total steps and the current step,
     uses SLERP
     """
+    
     # calculate shortest path between from_rot and to_rot using SLERP
     r1 = R.from_euler('xyz', from_rot)
     r2 = R.from_euler('xyz', to_rot)
