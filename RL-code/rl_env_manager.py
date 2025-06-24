@@ -76,15 +76,18 @@ class EnvVarManager:
         self.listbox.bind('<<ListboxSelect>>', self.on_select)
 
         self.save_button = tk.Button(
-            self.left_frame, text="Save to File", command=self.save_to_env_file)
+            self.left_frame, text="Save to File",
+            command=self.save_to_env_file)
         self.save_button.pack(anchor="w", pady=(10, 0))
 
         self.add_button = tk.Button(
-            self.left_frame, text="Add Variable", command=self.add_variable)
+            self.left_frame, text="Add Variable",
+            command=self.add_variable)
         self.add_button.pack(anchor="w", pady=(5, 0))
 
         self.delete_button = tk.Button(
-            self.left_frame, text="Delete Variable", command=self.delete_variable)
+            self.left_frame, text="Delete Variable",
+            command=self.delete_variable)
         self.delete_button.pack(anchor="w", pady=(5, 0))
 
         # Right panel
@@ -98,7 +101,8 @@ class EnvVarManager:
         self.label_frame.pack(fill=tk.BOTH, expand=True, anchor="nw")
 
         self.value_label = tk.Label(
-            self.label_frame, text="Select a variable", anchor="w", justify="left"
+            self.label_frame, text="Select a variable", anchor="w",
+            justify="left"
         )
         self.value_label.pack(fill=tk.BOTH, expand=True)
 
@@ -107,11 +111,13 @@ class EnvVarManager:
         self.button_frame.pack(anchor="w", pady=(0, 10))
 
         self.manual_button = tk.Button(
-            self.button_frame, text="Set Manually", command=self.set_manual, state=tk.DISABLED)
+            self.button_frame, text="Set Manually", command=self.set_manual,
+            state=tk.DISABLED)
         self.manual_button.grid(row=0, column=0, padx=(0, 10))
 
         self.file_button = tk.Button(
-            self.button_frame, text="Select File", command=self.select_file, state=tk.DISABLED)
+            self.button_frame, text="Select File", command=self.select_file,
+            state=tk.DISABLED)
         self.file_button.grid(row=0, column=1)
 
         self.populate_listbox()
@@ -139,13 +145,17 @@ class EnvVarManager:
     def set_manual(self):
         if not self.selected_var:
             return
-        new_value = simpledialog.askstring("Set Value", f"Enter value for {
-                                           self.selected_var}:", initialvalue=self.env_dict[self.selected_var])
+        new_value = simpledialog.askstring("Set Value",
+                                           f"Enter value for {
+                                               self.selected_var}:",
+                                           initialvalue=self.env_dict[
+                                               self.selected_var
+                                           ])
         if new_value is not None:
             self.env_dict[self.selected_var] = new_value
             self.value_label.config(text=f"{self.selected_var} = {new_value}")
             messagebox.showinfo(
-                "Updated", f"{self.selected_var} updated manually.")
+                "Updated", f"{self.selected_var} updated to:\n{new_value}.")
 
     def select_file(self):
         if not self.selected_var:
