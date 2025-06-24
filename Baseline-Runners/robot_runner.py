@@ -165,7 +165,7 @@ script = script.replace("# $$$ CODE HERE $$$", f"""
     movej(p[{starting_pose}[0], {starting_pose}[1], {starting_pose}[2], {starting_pose}[3], {starting_pose}[4], {starting_pose}[5]])
     {function_sequence}
     """)
-# print(script)
+print(script)
 test_file = open('test.txt', "w")
 test_file.write(script)
 
