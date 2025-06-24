@@ -9,8 +9,10 @@
 
 1. Create a Python Virtual Environment
     ```sh
+    # You should skip these steps after the initialization
     mkdir robot-cello-residual-rl-venv && cd robot-cello-residual-rl-venv
     python3 -m venv .
+
     source ./bin/activate
     # `activate` is for a POSIX compliance shell (Bash, Zsh, etc.)
     # if you are using another shell, say Fish or Powershell, choose the appropriate activate file
@@ -22,11 +24,14 @@
     - [Gym](https://www.gymlibrary.dev/): Reinforcement learning environment
     - [Mido](https://mido.readthedocs.io/en/latest/): Parsing MIDI files and creating MIDI objects
     - [Stable-Baselines3](https://stable-baselines3.readthedocs.io/en/master/): Implementation of reinforcement learning
-    - [python-dotenv](https://pypi.org/project/python-dotenv/): For parsing `.env` file
     ```sh
-    python3 -m pip install mujoco pandas gym mido stable_baselines3 python-dotenv
+    python3 -m pip install mujoco pandas gym mido stable_baselines3
     ```
-3. Modify `.env` file
+3. Create `.env` file by creating the copy of the provided `.env.example` file and modify the `.env` file by using `rl_env_manager.py` (GUI frontend for setting env variables)
+    ```sh
+    cp ./.env.example ./.env
+    python3 ./RL-code/rl_env_manager.py
+    ```
 4. Run `rl_runner.py` with `mjpython` command
     ```sh
     mjpython ./RL-code/rl_runner.py

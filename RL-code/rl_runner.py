@@ -1,3 +1,6 @@
+# Function to load environment variables from our Env Manager module
+from rl_env_manager import load_rl_env_from_dot_env
+
 import time
 import sys, importlib
 sys.modules['numpy._core.numeric'] = importlib.import_module('numpy.core.numeric')
@@ -32,16 +35,19 @@ class RenderCallback(BaseCallback):
 # ───────────────────────────────────────────────────────────────────
 
 def main():
+    # Load environment variables
+    env_vars = load_rl_env_from_dot_env()
+
     # we get the q_base, q_shoulder, q_elbow, q_wrist1, q_wrist2, q_wrist3
     trajectory = extract_joint_angles(
-        '/Users/skamanski/Documents/GitHub/Robot-Cello/biglogs/minuet_no_2v2-log-detailed.csv'
+        env_vars.get("TRAJ_LOG_CSV_PATH")
     )
     # midi file for this trajectory
     note_sequence = parse_midi(
-        '/Users/skamanski/Documents/GitHub/Robot-Cello/midi_robot_pipeline/midi_files/minuet_no_2v2.mid'
+        env_vars.get("NOTE_SEQ_MIDI_PATH")
     )
     scene_path = (
-        '/Users/skamanski/Documents/GitHub/Robot-Cello/MuJoCo_RL_UR5/env_experiment/universal_robots_ur5e/scene.xml'
+        env_vars.get("SCENE_XML_PATH")
     )
     start_pos = trajectory[0]
 
@@ -63,7 +69,8 @@ def main():
     
     #Test Code
     # ----------------
-    model_path = '/Users/skamanski/Documents/GitHub/Robot-Cello/rl/ppo_residual_ur5e.zip'
+    model_path = env_vars.get("MODEL_ZIP_PATH")
+
     model = PPO.load(model_path)
     env = make_env()
     obs = env.reset()
