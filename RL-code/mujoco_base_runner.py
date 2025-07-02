@@ -193,7 +193,7 @@ def main():
     trajectory = generate_trajectory(note_events)
     print(trajectory)
     # Define MuJoCo scene XML
-    scene_path = '/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/UR5-Sim/universal_robots_ur5e/scene.xml'
+    scene_path = '/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/UR5_Sim/universal_robots_ur5e/scene.xml'
     
 
     def make_env():
