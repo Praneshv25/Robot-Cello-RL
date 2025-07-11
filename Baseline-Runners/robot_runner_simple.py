@@ -4,18 +4,18 @@ import socket
 import mido
 from mido import MidiFile
 import sys
-sys.path.append('/home/skamanski/Downloads/rtde-2.7.2-release/rtde-2.7.2')
+
 import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
 
 
-ROBOT_IP = "128.46.75.201"
-UR_PORT = 30002  
+ROBOT_IP = "192.168.59.168"
+UR_PORT = 30001
 RTDE_PORT = 30004  
 
 CLEF = "bass"
 
-config_filename = "/home/skamanski/Downloads/rtde-2.7.2-release/rtde-2.7.2/examples/control_loop_configuration.xml"
+config_filename = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/Baseline-Runners/RTDE_Python_Client_Library/examples/control_loop_configuration.xml"
 conf = rtde_config.ConfigFile(config_filename)
 con = rtde.RTDE(ROBOT_IP, RTDE_PORT)
 con.connect()

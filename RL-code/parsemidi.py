@@ -119,4 +119,4 @@ def get_function_sequence(note_sequence):
             res += function + f"({bow_direction}, {note_duration})\n  stay()\n  "
     return res
 
-# print(parse_midi("/Users/PV/Robot Cello/Robot-Cello/midi_robot_pipeline/midi_files/twinkle_twinkle.mid"))
+print(parse_midi("/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid"))
