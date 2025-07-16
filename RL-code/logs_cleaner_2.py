@@ -1,123 +1,99 @@
-#!/usr/bin/env python3
-"""
-fix_log_event_labels.py
-=======================
-
-Utility to correct the *event_label* column in a detailed robot execution log
-created by **robot_runner_detailed_logs.py** so that each row is tagged with the
-actual musical note that was active at that timestamp.
-
-It also adds two convenience columns:
-
-* ``note_index`` – index of the note within the original ``note_sequence``  
-* ``note_name``  – human‑readable note (e.g. ``G4``)  
-
-How it works
-------------
-1. Dynamically imports ``parse_midi`` from *robot_runner_detailed_logs.py* (so we
-   don’t duplicate parsing logic).
-2. Parses the original MIDI file (and optional bowing‑text file) to recover the
-   exact start time and duration of every note in ``note_sequence``.
-3. Walks through the CSV, assigning each row to the note whose time window it
-   falls inside (with a small numerical tolerance for safety).
-4. Overwrites the existing ``event_label`` with the note name and writes the
-   enhanced CSV back to disk.
-
-Basic usage
------------
-
-.. code:: bash
-
-    python fix_log_event_labels.py \
-        --csv    minuet_no_2v2-log-detailed.csv \
-        --output minuet_no_2v2-log-detailed-fixed.csv \
-        --script robot_runner_detailed_logs.py \
-        --midi   MIDI-Files/minuet_no_2v2.mid
-
-Optional flags: ``--bowing-file`` and ``--clef`` pass straight through to
-``parse_midi`` if you need them.
-
-"""
-
 import pandas as pd
-import argparse
-import importlib.util
-import sys
-from pathlib import Path
+import numpy as np
+from scipy.spatial.distance import euclidean
 
-TOLERANCE = 1e-6  # seconds
+# --- 1. Define Waypoints ---
+# Convert your struct-like data into a more usable format, e.g., dictionaries
+# Each pose is [x, y, z, rx, ry, rz]
 
+bow_poses = {
+    'A_tip': [.473129539189, .413197423330, .256308427905, -1.460522581833, -2.310115543652, 1.445803824327],
+    'A_frog': [.300717266074, .793568239540, .099710283103, -1.543522183454, -2.354885618328, 1.346770272474],
+    'D_tip': [.340413993945, .280157415162, .176342071758, -1.614553612482, -2.044810993523, 1.042279199535],
+    'D_frog': [.302785064368, .749849181019, .117254426008, -1.664082298752, -2.084265434693, 1.037965163360],
+    'G_tip': [.162016291992, .201320984957, .059414774157, -1.929772636560, -1.931323067217, .555055912517],
+    'G_frog': [.281203376642, .681662588607, .104672526365, -1.812194031755, -1.940153681829, .493747597283],
+    'C_tip': [.079815569355, .285182178102, -.086654726588, -1.819646014269, -1.658258006768, .180930717120],
+    'C_frog': [.256662516098, .610082591416, .062624387196, -1.743236422252, -1.524514092756, .163823228357]
+}
 
-def _load_parse_midi(script_path: Path):
-    """Dynamically import *parse_midi* from the given script file."""
-    spec = importlib.util.spec_from_file_location("robot_runner_detailed_logs", script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore
-    if not hasattr(module, "parse_midi"):
-        raise AttributeError(f"{script_path} does not define a 'parse_midi' function.")
-    return module.parse_midi
-
-
-def _load_note_sequence(parse_midi_fn, midi_path: Path, bowing_file: str, clef: str):
-    note_seq = parse_midi_fn(str(midi_path), bowing_file, clef)
-    if not note_seq:
-        raise RuntimeError("parse_midi returned an empty note_sequence – nothing to label!")
-    # Ensure chronological order
-    return sorted(note_seq, key=lambda n: n["start_time_sec"])
-
-
-def _apply_labels(df: pd.DataFrame, note_seq):
-    # Prepare new columns
-    df["note_index"] = -1
-    df["note_name"] = pd.NA
-
-    # Vectorised labelling per note
-    for idx, note in enumerate(note_seq):
-        start = note["start_time_sec"] - TOLERANCE
-        end = note["start_time_sec"] + note["duration_sec"] + TOLERANCE
-        mask = (df["time_elapsed_sec"] >= start) & (df["time_elapsed_sec"] < end)
-        df.loc[mask, "note_index"] = idx
-        df.loc[mask, "note_name"] = note["note"]
-
-    # Overwrite event_label where note_name is known
-    df.loc[df["note_name"].notna(), "event_label"] = df.loc[df["note_name"].notna(), "note_name"]
-    return df
+# Separate note types for easier lookup
+note_mapping = {
+    'A_tip': 'A', 'A_frog': 'A',
+    'D_tip': 'D', 'D_frog': 'D',
+    'G_tip': 'G', 'G_frog': 'G',
+    'C_tip': 'C', 'C_frog': 'C',
+}
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Fix event_label and add note mapping to robot log CSV.")
-    parser.add_argument("--csv", required=True, help="Path to input CSV produced by robot_runner_detailed_logs.py")
-    parser.add_argument("--output", required=True, help="Path to write the fixed CSV")
-    parser.add_argument("--script", required=True, help="Path to robot_runner_detailed_logs.py (to import parse_midi)")
-    parser.add_argument("--midi", required=True, help="Path to the original MIDI file used for this run")
-    parser.add_argument("--bowing-file", default="None", help="Optional bowing file (pass 'None' to skip)")
-    parser.add_argument("--clef", default="bass", help="Clef to hand to parse_midi (default='bass')")
+# --- 2. Create Sample RTDE Data (Replace with your actual data loading) ---
+# In a real scenario, you would load your RTDE log file into a DataFrame.
+data = {
+    'timestamp_robot': np.arange(0, 100000000000, 0.1),
+    'TCP_pose_x': np.linspace(bow_poses['A_tip'][0], bow_poses['A_frog'][0], 100) + np.random.normal(0, 0.01, 100),
+    'TCP_pose_y': np.linspace(bow_poses['A_tip'][1], bow_poses['A_frog'][1], 100) + np.random.normal(0, 0.01, 100),
+    'TCP_pose_z': np.linspace(bow_poses['A_tip'][2], bow_poses['A_frog'][2], 100) + np.random.normal(0, 0.01, 100),
+    'TCP_pose_rx': np.linspace(bow_poses['A_tip'][3], bow_poses['A_frog'][3], 100) + np.random.normal(0, 0.01, 100),
+    'TCP_pose_ry': np.linspace(bow_poses['A_tip'][4], bow_poses['A_frog'][4], 100) + np.random.normal(0, 0.01, 100),
+    'TCP_pose_rz': np.linspace(bow_poses['A_tip'][5], bow_poses['A_frog'][5], 100) + np.random.normal(0, 0.01, 100),
+    'q_base': np.zeros(100), 'q_shoulder': np.zeros(100), 'q_elbow': np.zeros(100),
+    'q_wrist1': np.zeros(100), 'q_wrist2': np.zeros(100), 'q_wrist3': np.zeros(100),
+    'TCP_force_x': np.zeros(100), 'TCP_force_y': np.zeros(100), 'TCP_force_z': np.zeros(100),
+    'TCP_force_rx': np.zeros(100), 'TCP_force_ry': np.zeros(100), 'TCP_force_rz': np.zeros(100),
+}
+df = pd.DataFrame(data)
 
-    args = parser.parse_args()
-
-    csv_path = Path(args.csv).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
-    script_path = Path(args.script).expanduser().resolve()
-    midi_path = Path(args.midi).expanduser().resolve()
-
-    # --- Load resources -----------------------------------------------------
-    parse_midi_fn = _load_parse_midi(script_path)
-    note_seq = _load_note_sequence(parse_midi_fn, midi_path, args.bowing_file, args.clef)
-    df = pd.read_csv(csv_path)
-
-    # --- Relabel ------------------------------------------------------------
-    df_fixed = _apply_labels(df, note_seq)
-
-    # --- Save ---------------------------------------------------------------
-    df_fixed.to_csv(output_path, index=False)
-    print(f"✅ Wrote fixed CSV with {len(df_fixed):,} rows to {output_path}")
+# Add a few frames that are closer to 'D' to show detection
+df.loc[50:55, 'TCP_pose_x'] = np.linspace(bow_poses['D_tip'][0], bow_poses['D_frog'][0], 6)
+df.loc[50:55, 'TCP_pose_y'] = np.linspace(bow_poses['D_tip'][1], bow_poses['D_frog'][1], 6)
+df.loc[50:55, 'TCP_pose_z'] = np.linspace(bow_poses['D_tip'][2], bow_poses['D_frog'][2], 6)
+df.loc[50:55, 'TCP_pose_rx'] = np.linspace(bow_poses['D_tip'][3], bow_poses['D_frog'][3], 6)
+df.loc[50:55, 'TCP_pose_ry'] = np.linspace(bow_poses['D_tip'][4], bow_poses['D_frog'][4], 6)
+df.loc[50:55, 'TCP_pose_rz'] = np.linspace(bow_poses['D_tip'][5], bow_poses['D_frog'][5], 6)
 
 
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as exc:
-        print(f"❌ {type(exc).__name__}: {exc}")
-        sys.exit(1)
+# --- 3. Define a distance function (Example: Weighted Euclidean) ---
+def pose_distance(current_pose, target_pose, pos_weight=1.0, ori_weight=0.5):
+    """
+    Calculates a weighted Euclidean distance between two 6D poses.
+    current_pose, target_pose: lists/arrays of [x, y, z, rx, ry, rz]
+    pos_weight: weighting for position (m)
+    ori_weight: weighting for orientation (rad)
+    """
+    pos_dist = euclidean(current_pose[:3], target_pose[:3]) # meters
+    ori_dist = euclidean(current_pose[3:], target_pose[3:]) # radians
 
-# /Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/.venv/bin/python /Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/logs_cleaner_2.py --csv /Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/Data-Files/Big-Logs/minuet_no_2v2-log-detailed.csv --output minuet_no_2v2-log-detailed-fixed.csv --script RL-code/robot_runner_detailed_logs.py --midi /Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/minuet_no_2v2.mid
+    # A simple way to combine: square, weight, sum, then sqrt
+    return np.sqrt(pos_weight * pos_dist**2 + ori_weight * ori_dist**2)
+
+# --- 4. Apply the prediction logic ---
+predicted_notes = []
+for index, row in df.iterrows():
+    current_tcp_pose = [
+        row['TCP_pose_x'], row['TCP_pose_y'], row['TCP_pose_z'],
+        row['TCP_pose_rx'], row['TCP_pose_ry'], row['TCP_pose_rz']
+    ]
+
+    min_distance = float('inf')
+    closest_waypoint_name = 'Unknown'
+
+    for wp_name, wp_pose in bow_poses.items():
+        dist = pose_distance(current_tcp_pose, wp_pose, pos_weight=1.0, ori_weight=0.1) # Adjust weights as needed
+        if dist < min_distance:
+            min_distance = dist
+            closest_waypoint_name = wp_name
+
+    # Map the closest waypoint (e.g., 'A_tip') to its note ('A')
+    predicted_notes.append(note_mapping.get(closest_waypoint_name, 'Unknown'))
+
+df['predicted_note'] = predicted_notes
+
+# --- 5. Optional: Post-processing for smoother predictions ---
+# This is a simple smoothing for demonstration. More advanced methods may be needed.
+# For example, using a rolling window to pick the most frequent note.
+window_size = 5 # Number of samples to consider for smoothing
+df['predicted_note_smoothed'] = df['predicted_note'].rolling(window=window_size, min_periods=1).apply(lambda x: x.mode()[0], raw=False)
+
+print(df[['robot timestamp', 'TCP_pose_x', 'TCP_pose_y', 'TCP_pose_z', 'predicted_note', 'predicted_note_smoothed']].head(10))
+print(df[['robot timestamp', 'TCP_pose_x', 'TCP_pose_y', 'TCP_pose_z', 'predicted_note', 'predicted_note_smoothed']].tail(10))
+print(df['predicted_note_smoothed'].value_counts())
