@@ -26,14 +26,13 @@ INPUT_FEATURE_COLS = [
     'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3',
     # Robot TCP Pose (Current)
     'TCP_pose_x', 'TCP_pose_y', 'TCP_pose_z', 'TCP_pose_rx', 'TCP_pose_ry', 'TCP_pose_rz',
-    # Musical Context (from CSV directly)
+    # Musical Context
     'time_elapsed_sec',
     'remaining_duration_sec',
     'current_note_number', # This column needs cleaning
-    # These will be one-hot encoded or processed
     'current_string',
-    'event_label', # Used to infer bow direction and transition
-    'event_flag' # Used to infer transition
+    'event_label',
+    'event_flag'
 ]
 
 # Columns from CSV to be used as TARGET for the BC model (Expert Action)
