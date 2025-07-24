@@ -9,13 +9,13 @@ import rtde.rtde as rtde
 import rtde.rtde_config as rtde_config
 
 
-ROBOT_IP = "192.168.59.168"
-UR_PORT = 30001
+ROBOT_IP = "192.168.0.119"
+UR_PORT = 30002
 RTDE_PORT = 30004  
 
 CLEF = "bass"
 
-config_filename = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/Baseline-Runners/RTDE_Python_Client_Library/examples/control_loop_configuration.xml"
+config_filename = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/RTDE_Python_Client_Library/examples/control_loop_configuration.xml"
 conf = rtde_config.ConfigFile(config_filename)
 con = rtde.RTDE(ROBOT_IP, RTDE_PORT)
 con.connect()
@@ -187,13 +187,13 @@ def send_urscript(urscript, speed_scaling, note_sequence):
                     print("RTDE Not Running")
                     break
 
-                # while True:
-                #     state = con.receive()
-                #     if state is None:
-                #         continue
+                while True:
+                    state = con.receive()
+                    if state is None:
+                        continue
 
-                    # if state.actual_TCP_speed[0] < 0.001:
-                    #     break
+                    if state.actual_TCP_speed[0] < 0.001:
+                        break
                 
                 
                 state = con.receive()
@@ -208,7 +208,7 @@ def send_urscript(urscript, speed_scaling, note_sequence):
                         "TCP_force": state.actual_TCP_force
                     })
                 
-                # time.sleep(note["duration"])  # Wait for the duration of the note
+                time.sleep(note["duration"])  # Wait for the duration of the note
 
                 
                 if not rtde_running:  # Stop logging if interrupted
@@ -244,12 +244,12 @@ def save_data():
     df_log.to_csv(log_filename, index=False)
     print(f"Saved note event log as '{log_filename}'.")
 
-note_sequence = parse_midi("/home/skamanski/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid", 
-                           "/home/skamanski/Robot-Cello-ResidualRL/Pieces-Bowings/allegro_bowings.txt")
+note_sequence = parse_midi("/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid", 
+                           "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/Pieces-Bowings/allegro_bowings.txt")
 
 function_sequence = get_function_sequence(note_sequence)
 
-with open("/home/skamanski/Robot-Cello-ResidualRL/URScripts/song.script", "r") as f:
+with open("/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song.script", "r") as f:
     script = f.read()
 
 script = script.replace("# $$$ CODE HERE $$$", f"""{function_sequence}""")
