@@ -9,7 +9,8 @@ from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 import os
 import pickle
 
-# --- Configuration ---
+# URSim output training files (replace with your paths)
+# Note: I will gather more data + combine for improved BC results (WIP, esp gathering accurate G/C string data)
 CSV_FILES = [
     '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/allegro-log-detailed-test.csv',
     '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/twinkle-log-detailed-test.csv',
@@ -20,27 +21,27 @@ CSV_FILES = [
 
 
 
-# Columns from CSV to be used as INPUT features for the BC model (Observation)
+# Observation input features from csv data
 INPUT_FEATURE_COLS = [
-    # Robot Joint State (Current) - for closed-loop control
+    # curr robot joint states + tcp pose for closed-loop control
     'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3',
-    # Robot TCP Pose (Current)
     'TCP_pose_x', 'TCP_pose_y', 'TCP_pose_z', 'TCP_pose_rx', 'TCP_pose_ry', 'TCP_pose_rz',
-    # Musical Context
+    # musical context
     'time_elapsed_sec',
     'remaining_duration_sec',
-    'current_note_number', # This column needs cleaning
+    'current_note_number', # remember there is also 'transition'
     'current_string',
     'event_label',
     'event_flag'
 ]
 
-# Columns from CSV to be used as TARGET for the BC model (Expert Action)
+# will be predicted for curr timestep as BC action
+# fix to predict TCP position, not q_pos
 TARGET_COLS = [
-    'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3' # Predicting current joint positions
+    'TCP_pose_x', 'TCP_pose_y', 'TCP_pose_z', 'TCP_pose_rx', 'TCP_pose_ry', 'TCP_pose_rz' 
 ]
 
-# --- Neural Network Parameters ---
+# --- Neural Network Parameters (might wanna change) ---
 HIDDEN_SIZE = 256
 NUM_EPOCHS = 100
 BATCH_SIZE = 64
@@ -56,7 +57,7 @@ class CelloTrajectoryDataset(Dataset):
         self.one_hot_encoders = one_hot_encoders
 
         # Apply scalers and encoders
-        X_processed = self._preprocess_features(data_df.copy()) # Pass a copy to avoid modifying original df
+        X_processed = self._preprocess_features(data_df.copy()) 
         y_processed = self._preprocess_targets(data_df.copy())
 
         self.X = torch.tensor(X_processed, dtype=torch.float32)
@@ -65,8 +66,7 @@ class CelloTrajectoryDataset(Dataset):
     def _preprocess_features(self, df_features):
         processed_features = []
         
-        # --- Handle current_note_number cleaning ---
-        # Convert non-numeric values to NaN, then fill NaN (e.g., with 0 or a suitable default)
+        # 0 will be for transition events
         df_features['current_note_number'] = pd.to_numeric(df_features['current_note_number'], errors='coerce')
         df_features['current_note_number'] = df_features['current_note_number'].fillna(0) # Fill NaN with 0
 
@@ -120,8 +120,7 @@ class CelloTrajectoryDataset(Dataset):
         is_transitions = []
         for flag, label in zip(event_flags, event_labels):
             # Check for specific 'TRANSITION' in label, or if event_flag indicates a special type
-            # You might need to refine these conditions based on your specific log semantics
-            if 'TRANSITION' in label.upper() or not (1 <= flag <= 6): # Assuming event_flags 1-6 are normal bows
+            if 'TRANSITION' in label.upper() or not (1 <= flag <= 8): 
                 is_transitions.append(1)
             else:
                 is_transitions.append(0)

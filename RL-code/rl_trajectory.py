@@ -2,7 +2,7 @@ import gym
 from gym import spaces
 import mujoco
 import contact
-from parsemidi import parse_midi
+from parsemidi import parse_midi # Assuming parse_midi is available in current scope or imported correctly
 import pandas as pd
 import numpy as np
 import time
@@ -16,21 +16,35 @@ import torch
 import pickle
 
 from sklearn.preprocessing import MinMaxScaler, OneHotEncoder # Ensure these are imported
+from scipy.spatial.transform import Rotation as R # Import for rotation conversion
 
-# --- Define your BC Model architecture (copy from newest_bc.py) ---
-# It's crucial that this matches the model you saved
+
+# robot joints need to align with xml description
+MUJOCO_JOINT_NAME_MAP = {
+    'q_base': 'shoulder_pan_joint',
+    'q_shoulder': 'shoulder_lift_joint',
+    'q_elbow': 'elbow_joint',
+    'q_wrist1': 'wrist_1_joint',
+    'q_wrist2': 'wrist_2_joint',
+    'q_wrist3': 'wrist_3_joint',
+}
+
+
+
+
+# BC Architecture (must align with BC code!!!)
 class BehavioralCloningModel(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_size):
         super(BehavioralCloningModel, self).__init__()
         self.fc1 = nn.Linear(input_dim, hidden_size)
         self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, hidden_size) # Corrected from hidden_dim to hidden_size
         self.relu2 = nn.ReLU()
-        self.fc3 = nn.Linear(hidden_size, output_dim)
+        self.fc3 = nn.Linear(hidden_size, output_dim) # Corrected from hidden_dim to hidden_size
 
     def forward(self, x):
         x = self.fc1(x)
-        x = self.relu2(x) # Corrected from relu1
+        x = self.relu1(x) 
         x = self.fc2(x)
         x = self.relu2(x)
         x = self.fc3(x)
@@ -51,23 +65,30 @@ class Preprocessor:
     TARGET_COLS = [
         'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3'
     ]
+
+    CATEGORICAL_COLS = ['current_string', 'event_label']
+    
     HIDDEN_SIZE = 256 # Should match what you used for BC training
 
     @staticmethod
     def _infer_bow_direction(event_label):
-        if 'a_bow' in str(event_label).lower():
+        if 'a_bow' in str(event_label).lower() or 'up' in str(event_label).lower():
             return 'up'
-        elif 'd_bow' in str(event_label).lower():
+        elif 'd_bow' in str(event_label).lower() or 'down' in str(event_label).lower():
             return 'down'
         else:
             return 'none'
 
     @staticmethod
     def _infer_is_transition(event_flag, event_label):
-        if 'TRANSITION' in str(event_label).upper() or not (1 <= event_flag <= 6):
+        # If event_label explicitly contains 'TRANSITION', it's a transition.
+        if 'TRANSITION' in str(event_label).upper():
             return 1
-        else:
+        # Based on typical logs, event_flag 1-8 corresponds to note START/END.
+        # If it's within this range, it's a note, not a transition.
+        if 1 <= event_flag <= 8:
             return 0
+        return 1 # Otherwise, assume it's a transition or other non-note event
 
     @staticmethod
     def preprocess_observation(raw_obs_dict, loaded_scalers, loaded_encoders, input_feature_cols):
@@ -83,27 +104,37 @@ class Preprocessor:
         numerical_cols = [col for col in input_feature_cols if col not in ['current_string', 'event_label', 'event_flag']]
         for col in numerical_cols:
             if col in loaded_scalers:
-                processed_features.append(loaded_scalers[col].transform(single_obs_df[[col]]))
+                # Ensure the column exists and cast to float32
+                if col in single_obs_df.columns:
+                    # FIX for MinMaxScaler warning: Pass DataFrame slice (matching fitting)
+                    processed_features.append(loaded_scalers[col].transform(single_obs_df[[col]].astype(np.float32)))
+                else:
+                    # Fallback: append a zero array if a numerical column is missing
+                    print(f"Warning: Numerical column '{col}' not found in raw_obs_dict. Appending zeros.")
+                    processed_features.append(np.zeros((1, 1), dtype=np.float32))
             else:
-                # Fallback if a scaler isn't found (shouldn't happen if setup correctly)
-                processed_features.append(single_obs_df[[col]].values)
+                # If no scaler, just get values and cast to float32
+                # This doesn't involve a transformer, so .values is appropriate for NumPy output
+                processed_features.append(single_obs_df[[col]].values.astype(np.float32))
 
         # current_string one-hot encoding
-        current_string_encoded = loaded_encoders['current_string'].transform(single_obs_df[['current_string']])
-        processed_features.append(current_string_encoded) # Already dense numpy array
+        # FIX for OneHotEncoder warning: Pass NumPy array (matching fitting)
+        current_string_encoded = loaded_encoders['current_string'].transform(single_obs_df[['current_string']].values)
+        processed_features.append(current_string_encoded.astype(np.float32))
 
         # bow_direction inference and one-hot encoding
+        # This part is already correct as it's fitted and transformed with NumPy arrays
         bow_dir = Preprocessor._infer_bow_direction(single_obs_df['event_label'].iloc[0])
         bow_direction_encoded = loaded_encoders['bow_direction'].transform(np.array([[bow_dir]]))
-        processed_features.append(bow_direction_encoded) # Already dense numpy array
+        processed_features.append(bow_direction_encoded.astype(np.float32))
 
         # is_transition inference
         is_transition_val = Preprocessor._infer_is_transition(single_obs_df['event_flag'].iloc[0], single_obs_df['event_label'].iloc[0])
-        processed_features.append(np.array([[is_transition_val]]))
+        processed_features.append(np.array([[is_transition_val]], dtype=np.float32))
 
-        # Stack horizontally and flatten for a single observation
-        return np.hstack(processed_features).flatten()
-
+        # Stack horizontally, flatten, and ensure C-contiguous float32 array for PyTorch compatibility
+        # FIX for ValueError: Flatten the result to (23,)
+        return np.ascontiguousarray(np.hstack(processed_features)).flatten()
 
 class UR5eCelloTrajectoryEnv(gym.Env):
     """
@@ -116,7 +147,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
     def __init__(
         self,
         model_path: str,
-        trajectory: list,
+        trajectory: list, # This might be unused now if BC is primary
         note_sequence: list,
         render_mode=None,
         action_scale: float = 0.05,
@@ -154,6 +185,15 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         # --- Musical notes & string mapping ---
         self.note_sequence = note_sequence
 
+        # Calculate cumulative durations for note tracking
+        self.cumulative_note_durations = [0.0]
+        cumulative_sum = 0.0
+        for note in self.note_sequence:
+            # Use 'duration' key from parse_midi output
+            cumulative_sum += note.get('duration', 0.5) 
+            self.cumulative_note_durations.append(cumulative_sum)
+        self.total_midi_duration = cumulative_sum
+        self.total_duration = self.total_midi_duration # Use actual midi duration
 
         # --- Load BC Model and Preprocessors ---
         self.bc_scalers = None
@@ -177,12 +217,10 @@ class UR5eCelloTrajectoryEnv(gym.Env):
             bc_input_dim = Preprocessor.preprocess_observation(
                 dummy_raw_obs_dict, self.bc_scalers, self.bc_encoders, Preprocessor.INPUT_FEATURE_COLS
             ).shape[0]
-            print(f"Calculated bc_input_dim for observation_space: {bc_input_dim}") # <-- Add this line
+            print(f"Calculated bc_input_dim for observation_space: {bc_input_dim}")
             bc_output_dim = len(Preprocessor.TARGET_COLS)
 
             self.bc_model = BehavioralCloningModel(bc_input_dim, bc_output_dim, bc_hidden_size)
-            # ...
-           
             self.bc_model.load_state_dict(torch.load(bc_policy_path))
             self.bc_model.eval() # Set to evaluation mode
 
@@ -216,8 +254,6 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         # --- Tracking ---
         self.prev_torque = np.zeros(6)
         self.current_time = 0.0
-        # self.current_idx = 0 # This might be less relevant if not directly following a fixed demo_traj index
-        self.total_duration = len(self.note_sequence) * 0.5 # Example, adjust based on notes # You'll need to define how total_duration is calculated
         self.start_positions = start_joint_positions
         self.string_sites = {}
         for s in ('A','D','G','C'):
@@ -230,11 +266,11 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         self.tcp_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "TCP_point")
         if self.tcp_site_id == -1:
             # It's good practice to raise an error if a critical site is not found
-            print("Available sites in model:", self.model.site_names)
+            site_names = [self.model.site(i).name for i in range(self.model.nsite)]
+            print("Available sites in model:", site_names)
             raise ValueError("TCP_point site not found in MuJoCo model. Please check your XML model.")
         print(f'TCP site ID: {self.tcp_site_id}')
        
-
         # TODO : from each string site, compute the ideal string line
         self.string_lines = {}
         for site in self.string_sites.values():
@@ -263,7 +299,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         mujoco.mj_forward(self.model, self.data)
         # reset trackers
         self.current_time = 0.0
-        self.current_idx = 0
+        self.current_midi_note_idx = 0 # Reset MIDI note index here
         self.total_pid_error = np.zeros(6)
         self.prev_torque = np.zeros(6)
         return self._get_obs()
@@ -308,7 +344,8 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         
         # Clamp to model's joint limits
         for i in range(len(desired_q)):
-            joint_id = self.model.joint_name2id(Preprocessor.TARGET_COLS[i].replace('q_', 'UR5e_joint_')) # Adjust name mapping
+            joint_name_from_preprocessor = Preprocessor.TARGET_COLS[i]
+            joint_id = self.model.joint(MUJOCO_JOINT_NAME_MAP.get(joint_name_from_preprocessor)).id # Adjust name mapping
             low_limit = self.model.jnt_range[joint_id, 0]
             high_limit = self.model.jnt_range[joint_id, 1]
             desired_q[i] = np.clip(desired_q[i], low_limit, high_limit)
@@ -320,7 +357,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         mujoco.mj_step(self.model, self.data)
 
         # 6. Calculate reward (CRITICAL for RL learning!)
-        reward, info = self._calculate_reward(bc_action_unscaled, rl_residual_unscaled, desired_q)
+        reward, info = self._compute_reward(bc_action_unscaled, rl_residual_unscaled, desired_q) # Updated call
 
         # 7. Check if episode is done (e.g., time limit, failure)
         done = self._check_done()
@@ -328,17 +365,119 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         # 8. Get next observation for the RL agent
         next_obs = self._get_obs()
 
-        # ... (render if necessary)
-
         return next_obs, reward, done, info
+        
+    def _get_current_note_info(self):
+        """
+        Determines the current active note from the note_sequence based on simulation time.
+        Updates self.current_midi_note_idx.
+        """
+        # If we are past the end of the last note, return sentinel info
+        if self.data.time >= self.total_midi_duration and len(self.note_sequence) > 0:
+            # Ensure index points to the last note if we're exactly at the end, otherwise signal end.
+            if self.data.time >= self.cumulative_note_durations[-1]: 
+                 return {
+                    'note_number': 0, # Placeholder for no active note
+                    'string': 'None',
+                    'event_label': 'END_SEQUENCE',
+                    'event_flag': 0,
+                    'duration_sec': 0.0
+                }
+
+        # Advance current_midi_note_idx
+        # Use a while loop to correctly jump over multiple short notes if simulation step is large
+        while (self.current_midi_note_idx < len(self.note_sequence) - 1 and # Ensure not trying to go past last note
+               self.data.time >= self.cumulative_note_durations[self.current_midi_note_idx + 1]):
+            self.current_midi_note_idx += 1
+        
+        if self.current_midi_note_idx < len(self.note_sequence):
+            current_note = self.note_sequence[self.current_midi_note_idx]
+            
+            # Construct dictionary for observation, using 'number' for note_number
+            # and 'duration' for duration_sec, as per parse_midi output.
+            note_info_for_obs = {
+                'note_number': current_note.get('number', 0), # Corrected key from 'note' to 'number' as per parse_midi
+                'string': current_note.get('string', 'None'), # 'string' is directly provided by parse_midi
+                'duration_sec': current_note.get('duration', 0.5), # Use 'duration' key directly from parse_midi
+                'event_label': current_note.get('event_label', ''), # Try to get 'event_label' if it exists
+                'event_flag': current_note.get('event_flag', 0) # Try to get 'event_flag' if it exists
+            }
+            
+            return note_info_for_obs
+        else:
+            # This case should ideally be caught by the first `if` block, but as a safeguard:
+            return {
+                'note_number': 0,
+                'string': 'None',
+                'event_label': 'END_SEQUENCE',
+                'event_flag': 0,
+                'duration_sec': 0.0
+            }
+
+    def _get_current_note_number(self):
+        """Returns the MIDI note number of the current active note."""
+        note_info = self._get_current_note_info()
+        return note_info['note_number']
+
+    def _get_current_string(self):
+        """
+        Returns the single-character string ('A', 'D', 'G', 'C') corresponding
+        to the current active note. Handles 'X-string' format and note-to-string mapping.
+        """
+        note_info = self._get_current_note_info()
+        raw_s = note_info['string']
+        if '-' in raw_s:
+            return raw_s.split('-')[1]
+        elif raw_s == 'None': # Handle end of sequence or unmapped notes
+            return 'None'
+        return raw_s # Should be 'A', 'D', 'G', 'C' directly if no hyphen
+
+    def _get_current_event_label(self):
+        """
+        Synthesizes an event label (e.g., 'START a_bow', 'END_SEQUENCE')
+        based on the current note and simulation time.
+        Prioritizes existing 'event_label' if present in note_info.
+        """
+        note_info = self._get_current_note_info()
+        
+        # If the note_info already has an event_label, use it (from original log or augmented MIDI)
+        if 'event_label' in note_info and note_info['event_label'] not in ['', None]:
+            return note_info['event_label']
+
+        if note_info['note_number'] == 0 and note_info['string'] == 'None': 
+            return 'END_SEQUENCE'
+        
+        current_string = self._get_current_string()
+        if current_string in ['A', 'D', 'G', 'C']:
+            # Simplification: assuming it's always a "START" event when a note is active.
+            # If the BC model needs 'END' events, more complex logic is required
+            # to detect the end of a note's duration.
+            return f"START {current_string.lower()}_bow"
+        
+        return "TRANSITION" # Default if no specific note is active or recognized
+
+    def _get_current_event_flag(self):
+        """
+        Synthesizes an event flag (e.g., 1 for START, 0 for END_SEQUENCE)
+        based on the current note.
+        Prioritizes existing 'event_flag' if present in note_info.
+        """
+        note_info = self._get_current_note_info()
+
+        # If the note_info already has an event_flag, use it
+        if 'event_flag' in note_info and note_info['event_flag'] != 0:
+            return note_info['event_flag']
+
+        if note_info['note_number'] == 0 and note_info['string'] == 'None': 
+            return 0 # Or a specific flag for end of sequence
+        
+        # For a "START" event, a common flag might be 1 or 3 from typical log data.
+        # Let's use 1 as a generic start flag.
+        return 1
+
     def _get_tcp_pos(self):
         # Use the tcp_site_id initialized in __init__
         return self.data.site_xpos[self.tcp_site_id]
-    # def _get_tcp_pos(self):
-    #     tcp_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "TCP_point")
-    #     if tcp_site_id == -1:
-    #         raise ValueError("TCP_point site not found in MuJoCo model. Check your XML.")
-    #     return self.data.site_xpos[tcp_site_id]
 
     def _get_obs(self):
         qpos = self.data.qpos[:6].copy()
@@ -347,40 +486,70 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         contacts = contact.detect_bow_string_contact(self.model, self.data)
         contact_vec = [float(contacts[s]) for s in ('A','D','G','C')]
         
+        # --- Rotation Conversion ---
+        # Get the 3x3 rotation matrix for the TCP site
+        tcp_xmat = self.data.site_xmat[self.tcp_site_id].reshape(3, 3)
+        # Convert the rotation matrix to Euler angles (radians)
+        # Assuming 'xyz' convention matches your BC training data
+        # If your data used a different convention (e.g., 'zyx'), change 'xyz' accordingly.
+        # If your BC training data used degrees, change degrees=False to degrees=True.
+        r = R.from_matrix(tcp_xmat)
+        tcp_euler_angles = r.as_euler('xyz', degrees=False) 
+
         raw_obs_dict = {
-        'q_base': self.data.qpos[0],
-        'q_shoulder': self.data.qpos[1],
-        'q_elbow': self.data.qpos[2],
-        'q_wrist1': self.data.qpos[3],
-        'q_wrist2': self.data.qpos[4],
-        'q_wrist3': self.data.qpos[5],
-        'TCP_pose_x': self.data.site_xpos[self.tcp_site_id][0],
-        'TCP_pose_y': self.data.site_xpos[self.tcp_site_id][1],
-        'TCP_pose_z': self.data.site_xpos[self.tcp_site_id][2],
-        'TCP_pose_rx': self.data.site_xmat[self.tcp_site_id][0], # Assuming you extract rotation correctly
-        'TCP_pose_ry': self.data.site_xmat[self.tcp_site_id][1],
-        'TCP_pose_rz': self.data.site_xmat[self.tcp_site_id][2],
-        'time_elapsed_sec': self.data.time, # Or self.current_time if you prefer
-        'remaining_duration_sec': self.total_duration - self.data.time, # Adjust if your duration logic is different
-        'current_note_number': self._get_current_note_number(), # Ensure this returns a number
-        'current_string': self._get_current_string(), # Ensure this returns a string like 'A', 'D', 'G', 'C'
-        'event_label': self._get_current_event_label(), # Ensure this returns a string like 'START a_bow', 'END d_bow'
-        'event_flag': self._get_current_event_flag() # Ensure this returns a number
+            'q_base': self.data.qpos[0],
+            'q_shoulder': self.data.qpos[1],
+            'q_elbow': self.data.qpos[2],
+            'q_wrist1': self.data.qpos[3],
+            'q_wrist2': self.data.qpos[4],
+            'q_wrist3': self.data.qpos[5],
+            'TCP_pose_x': self.data.site_xpos[self.tcp_site_id][0],
+            'TCP_pose_y': self.data.site_xpos[self.tcp_site_id][1],
+            'TCP_pose_z': self.data.site_xpos[self.tcp_site_id][2],
+            'TCP_pose_rx': tcp_euler_angles[0], # Use converted Euler angles
+            'TCP_pose_ry': tcp_euler_angles[1], # Use converted Euler angles
+            'TCP_pose_rz': tcp_euler_angles[2], # Use converted Euler angles
+            'time_elapsed_sec': self.data.time, # Or self.current_time if you prefer
+            'remaining_duration_sec': self.total_duration - self.data.time, # Adjust if your duration logic is different
+            'current_note_number': self._get_current_note_number(), 
+            'current_string': self._get_current_string(), 
+            'event_label': self._get_current_event_label(), 
+            'event_flag': self._get_current_event_flag() 
         }
 
-        print(f"raw_obs_dict from _get_obs(): {raw_obs_dict}") # <--- ADD THIS LINE
+        #print(f"raw_obs_dict from _get_obs(): {raw_obs_dict}") 
 
         # Ensure Preprocessor is imported or defined
         processed_obs = Preprocessor.preprocess_observation(
             raw_obs_dict, self.bc_scalers, self.bc_encoders, Preprocessor.INPUT_FEATURE_COLS
         )
 
-        print(f"Shape of processed_obs from _get_obs(): {processed_obs.shape}") # <--- ADD THIS LINE
+        #print(f"Shape of processed_obs from _get_obs(): {processed_obs.shape}") 
 
         return processed_obs
-        #return np.concatenate([qpos, qvel, contact_vec])
 
-    def _compute_reward(self):
+    def _apply_pid_control(self, desired_q):
+        """Applies PID control to achieve desired joint positions."""
+        current_q = self.data.qpos[:6]
+        current_q_vel = self.data.qvel[:6]
+
+        error = desired_q - current_q
+        self.total_pid_error += error * self.sim_dt # Integrate error
+
+        # Proportional, Integral, Derivative components
+        p_term = self.kp * error
+        i_term = self.ki * self.total_pid_error
+        d_term = -self.kd * current_q_vel # D-term acts on current velocity to dampen
+
+        # Combine terms to get desired torques
+        # Ensure that the torques are within the actuator's force range.
+        # Check model.actuator_forcemax or similar for limits if needed.
+        torques = p_term + i_term + d_term
+
+        # Apply torques to actuators
+        self.data.ctrl[:6] = torques
+
+    def _compute_reward(self, bc_action, rl_residual, final_q_command):
         """
         Calculates the reward for the current step, incorporating residual penalty
         and existing task-specific rewards.
@@ -414,7 +583,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         else:
             # You might need a more robust way to get `self.current_idx` if it's not time-synced.
             # E.g., self.current_idx = self._get_current_note_idx_from_time()
-            idx = min(self.current_idx, len(self.note_sequence) - 1)
+            idx = self.current_midi_note_idx # Use the tracked MIDI note index
             
             tcp = self._get_tcp_pos() # Ensure _get_tcp_pos() is defined and returns 3D numpy array
             raw_s = self.note_sequence[idx].get('string', '')
@@ -491,11 +660,11 @@ class UR5eCelloTrajectoryEnv(gym.Env):
     def _check_done(self):
         # Example done conditions:
         # 1. Episode time limit reached:
-        # if self.data.time >= self.episode_duration_limit: return True
+        if self.data.time >= self.total_duration: return True
         # 2. Robot out of bounds / crashed:
         # if self._is_robot_crashed(): return True
         # 3. All notes played:
-        # if self.current_note_idx >= len(self.note_sequence): return True
+        if self.current_midi_note_idx >= len(self.note_sequence): return True
         return False # Placeholder
 
     def render(self, mode: str = "human"):
@@ -518,40 +687,3 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         if self.viewer:
             self.viewer.close()
             self.viewer = None
-
-# --- geminiRunv2.py ---
-import time, sys, importlib
-sys.modules['numpy._core.numeric'] = importlib.import_module('numpy.core.numeric')
-from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
-from rl_trajectory import UR5eCelloTrajectoryEnv
-from parsemidi import parse_midi
-import pandas as pd
-
-def extract_joint_angles(csv_filename):
-    df = pd.read_csv(csv_filename)
-    cols = ['q_base','q_shoulder','q_elbow','q_wrist1','q_wrist2','q_wrist3']
-    return df[cols].values.tolist()
-
-
-# if __name__ == '__main__':
-#     traj = extract_joint_angles('path/to/log.csv')
-#     notes = parse_midi('path/to/file.mid')
-#     scene = 'path/to/scene.xml'
-#     start = traj[0]
-#     def mk():
-#         return UR5eCelloTrajectoryEnv(
-#             model_path=scene,
-#             trajectory=traj,
-#             note_sequence=notes,
-#             action_scale=0.05,
-#             residual_penalty=0.02,
-#             contact_penalty=0.1,
-#             torque_penalty=0.001,
-#             kp=100, kd=2, ki=0.1,
-#             start_joint_positions=start
-#         )
-#     env = DummyVecEnv([mk])
-#     model = PPO('MlpPolicy', env, verbose=1, tensorboard_log='./tb_residual/')
-#     model.learn(total_timesteps=200000)
-#     model.save('ppo_residual_ur5e')
