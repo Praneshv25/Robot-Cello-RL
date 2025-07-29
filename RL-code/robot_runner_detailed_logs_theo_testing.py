@@ -12,7 +12,7 @@ import logging # Added for example_control_loop's logging setup
 # ================================
 # Configuration (Keep existing, add DASHBOARD_PORT)
 # ================================
-ROBOT_IP = "10.165.11.242"
+ROBOT_IP = "192.168.0.119"
 ROBOT_PORT = 30004  # RTDE Port
 UR_PRIMARY_PORT = 30002 # Primary Interface Port for URScript
 DASHBOARD_PORT = 29999 # Dashboard Server Port
@@ -22,8 +22,8 @@ CLEF = "bass"
 CONFIG_FILENAME = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/RTDE_Python_Client_Library/examples/cello_config.xml"
 MIDI_FILE_PATH = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid"
 BOWING_FILE = "None"
-SONG_SCRIPT_TEMPLATE = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song.script"
-OUTPUT_LOG_FILENAME = "allegro-detailed-test-irl.csv"
+SONG_SCRIPT_TEMPLATE = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song2.script"
+OUTPUT_LOG_FILENAME = "allegro-detailed-test-song2.csv"
 DEFAULT_TEMPO_BPM = 120
 
 # ================================
@@ -448,7 +448,15 @@ def send_urscript(urscript, speed_scaling, note_sequence_timed):
                 if current_note_info:
                     remaining_duration_sec = max(0.0, current_note_info['end_time_sec'] - current_rtde_time_sec)
                     current_event_type = "Transition" if current_note_info['is_transition'] else "Note"
-
+                # --- Find current bowing (from RTDE) ---
+                current_bowing_raw = state.output_int_register_1
+                current_bowing = ""
+                if current_bowing_raw == 1:
+                    current_bowing = "up"
+                elif current_bowing_raw == 0:
+                    current_bowing = "down"
+                else:
+                    current_bowing = "unknown"
                 # --- Log Data Point ---
                 data_log.append({
                     "timestamp_robot": state.timestamp,
@@ -459,7 +467,7 @@ def send_urscript(urscript, speed_scaling, note_sequence_timed):
                     "current_note_number": current_note_info.get('number', None) if current_note_info else None,
                     "current_note_name": current_note_info.get('note', None) if current_note_info else None,
                     "current_string": current_note_info.get('string', None) if current_note_info else None,
-                    "current_bowing": current_note_info.get('bowing', None) if current_note_info else None,
+                    "current_bowing": current_bowing,
                     "remaining_duration_sec": remaining_duration_sec,
                     "has_note_changed": has_note_changed,
                     "TCP_pose_x": state.actual_TCP_pose[0],
@@ -556,7 +564,7 @@ def save_data(log_data, filename):
         columns = [
             "timestamp_robot", "time_elapsed_sec", "event_flag", "event_label",
             "current_event_type", "current_note_number", "current_note_name",
-            "current_string", "remaining_duration_sec",
+            "current_string", "current_bowing", "remaining_duration_sec",
             "TCP_pose_x", "TCP_pose_y", "TCP_pose_z", "TCP_pose_rx", "TCP_pose_ry", "TCP_pose_rz",
             "q_base", "q_shoulder", "q_elbow", "q_wrist1", "q_wrist2", "q_wrist3",
             "TCP_force_x", "TCP_force_y", "TCP_force_z", "TCP_force_rx", "TCP_force_ry", "TCP_force_rz"

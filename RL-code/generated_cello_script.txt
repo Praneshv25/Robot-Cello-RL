@@ -175,74 +175,39 @@ def song():
     end
   end
 
-  def cross_product(v1, v2):
-    return [v1[1]*v2[2] - v1[2]*v2[1],
-            v1[2]*v2[0] - v1[0]*v2[2],
-            v1[0]*v2[1] - v1[1]*v2[0]]
-  end
-
-  def normalize(v):
-    local mag = norm(v)
-    if mag > 1e-6:
-      return v / mag
-    else:
-      return [0, 0, 0]
-    end
-  end
-
-  def string_crossing(start_bow_poses, end_bow_poses, next_dir, crossing_dir):
-    # Get current TCP pose
+  def string_crossing(start_bow_poses, end_bow_poses, next_dir):
+    # we first find the curr position
     local tcp_pose = get_actual_tcp_pose()
     local start_p = [tcp_pose[0], tcp_pose[1], tcp_pose[2], tcp_pose[3], tcp_pose[4], tcp_pose[5]]
 
-    # === Step 1: Calculate bow direction and lateral step vector ===
-    local bow_vec = end_bow_poses.tip_p[0:3] - end_bow_poses.frog_p[0:3]
-    local direction_vector = normalize(bow_vec)
-    local bow_len = norm(bow_vec)
+    local bow_len = norm(end_bow_poses.tip_p - end_bow_poses.frog_p)
+    local direction_vector = (end_bow_poses.tip_p - end_bow_poses.frog_p) / bow_len
 
-    # Cello body normal from Python calculation
-    local cello_normal = [-0.59560917, -0.15941505, -0.787297]
+    local dist_from_tip = norm(end_bow_poses.tip_p - end_bow_poses.frog_p) * norm(start_p - start_bow_poses.frog_p) / norm(start_bow_poses.tip_p - start_bow_poses.frog_p)
 
-    # Compute lateral "out" direction
-    local out = normalize(cross_product(cello_normal, direction_vector))
-
-    # Flip direction if crossing downward
-    if not crossing_dir:
-      out = -1 * out
-    end
-
-    # === Step 2: Estimate current bow location (frog vs tip) and choose target orientation ===
-    local dist_to_frog = norm(start_p[0:3] - start_bow_poses.frog_p[0:3])
-    local dist_to_tip  = norm(start_p[0:3] - start_bow_poses.tip_p[0:3])
-
-    local orientation = [0, 0, 0]
-    if dist_to_frog < dist_to_tip:
-      orientation = end_bow_poses.frog_p[3:6]
-    else:
-      orientation = end_bow_poses.tip_p[3:6]
-    end
-
-    # === Step 3: Project target pose onto new string path ===
-    local dist_from_tip = bow_len * norm(start_p[0:3] - start_bow_poses.frog_p[0:3]) / norm(start_bow_poses.tip_p[0:3] - start_bow_poses.frog_p[0:3])
-    local target_pos = end_bow_poses.frog_p[0:3] + direction_vector * dist_from_tip
-
-    # === Step 4: Build movement poses ===
-    local step1 = start_p[0:3] + out * 0.03  # Lateral step
-    local step1_pose = p[step1[0], step1[1], step1[2], start_p[3], start_p[4], start_p[5]]
-    local reoriented = p[step1[0], step1[1], step1[2], orientation[0], orientation[1], orientation[2]]
-    local target_p = p[target_pos[0], target_pos[1], target_pos[2], orientation[0], orientation[1], orientation[2]]
-
-    # === Step 5: Execute motion ===
-    movep(step1_pose)
-    movep(reoriented)
+    # from current position, we first move out in the x and z directions so we dont crash the bow
+    # lets just do this a fixed amount every time, providing a "safe" clearance
+    local out = [0.6, 0.0, 0.5, 0, 0, 0]
+    local step1 = start_p + out
+    # after adjustments on teach pendant, rotations are constant throughout a given bowing
+    local step2 = [step1[0], step1[1], step1[2], end_bow_poses.frog_p[3], end_bow_poses.frog_p[4], end_bow_poses.frog_p[5]]
+    # lastly, we adjust the x, y, z positions to fit a point along the line from frog to tip for the ending string
+    # that is closest to the starting position 
+    local target_pose = end_bow_poses.frog_p + direction_vector *  dist_from_tip
+    
+    movel(p[step1[0], step1[1], step1[2], step1[3], step1[4], step1[5]])
+    movep(p[step2[0], step2[1], step2[2], step2[3], step2[4], step2[5]])
     sync()
-    movep(target_p)
+    movep(p[target_pose[0], target_pose[1], target_pose[2], target_pose[3], target_pose[4], target_pose[5]])
+    # sync()
   end
+
+
 
   def a_to_d(next_dir=0):
     _event_flag = 101
     write_output_integer_register(0, _event_flag)
-    string_crossing(a_bow_poses, d_bow_poses, next_dir, False)
+    string_crossing(a_bow_poses, d_bow_poses, next_dir)
     _event_flag = 102
     write_output_integer_register(0, _event_flag)
   end
@@ -250,7 +215,7 @@ def song():
   def a_to_g(next_dir=0):
     _event_flag = 109
     write_output_integer_register(0, _event_flag)
-    string_crossing(a_bow_poses, g_bow_poses, next_di, False)
+    string_crossing(a_bow_poses, g_bow_poses, next_dir)
     _event_flag = 110
     write_output_integer_register(0, _event_flag)
   end
@@ -258,7 +223,7 @@ def song():
   def d_to_a(next_dir=0):
     _event_flag = 103
     write_output_integer_register(0, _event_flag)
-    string_crossing(d_bow_poses, a_bow_poses, next_dir, True)
+    string_crossing(d_bow_poses, a_bow_poses, next_dir)
     _event_flag = 104
     write_output_integer_register(0, _event_flag)
   end
@@ -266,7 +231,7 @@ def song():
   def d_to_g(next_dir=0):
     _event_flag = 105
     write_output_integer_register(0, _event_flag)
-    string_crossing(d_bow_poses, g_bow_poses, next_dir, False)
+    string_crossing(d_bow_poses, g_bow_poses, next_dir)
     _event_flag = 106
     write_output_integer_register(0, _event_flag)
   end
@@ -274,7 +239,7 @@ def song():
   def d_to_c(next_dir=0):
     _event_flag = 113
     write_output_integer_register(0, _event_flag)
-    string_crossing(d_bow_poses, c_bow_poses, next_dir, False)
+    string_crossing(d_bow_poses, c_bow_poses, next_dir)
     _event_flag = 114
     write_output_integer_register(0, _event_flag)
   end
@@ -282,7 +247,7 @@ def song():
   def g_to_a(next_dir=0):
     _event_flag = 111
     write_output_integer_register(0, _event_flag)
-    string_crossing(g_bow_poses, a_bow_poses, next_dir, True)
+    string_crossing(g_bow_poses, a_bow_poses, next_dir)
     _event_flag = 112
     write_output_integer_register(0, _event_flag)
   end
@@ -290,7 +255,7 @@ def song():
   def g_to_d(next_dir=0):
     _event_flag = 107
     write_output_integer_register(0, _event_flag)
-    string_crossing(g_bow_poses, d_bow_poses, next_dir, True)
+    string_crossing(g_bow_poses, d_bow_poses, next_dir)
     _event_flag = 108
     write_output_integer_register(0, _event_flag)
   end
@@ -298,7 +263,7 @@ def song():
   def g_to_c(next_dir=0):
     _event_flag = 117
     write_output_integer_register(0, _event_flag)
-    string_crossing(g_bow_poses, c_bow_poses, next_dir, False)
+    string_crossing(g_bow_poses, c_bow_poses, next_dir)
     _event_flag = 118
     write_output_integer_register(0, _event_flag)
   end
@@ -306,7 +271,7 @@ def song():
   def c_to_d(next_dir=0):
     _event_flag = 115
     write_output_integer_register(0, _event_flag)
-    string_crossing(c_bow_poses, d_bow_poses, next_dir, True)
+    string_crossing(c_bow_poses, d_bow_poses, next_dir)
     _event_flag = 116
     write_output_integer_register(0, _event_flag)
   end
@@ -314,7 +279,7 @@ def song():
   def c_to_g(next_dir=0):
     _event_flag = 119
     write_output_integer_register(0, _event_flag)
-    string_crossing(c_bow_poses, g_bow_poses, next_dir, True)
+    string_crossing(c_bow_poses, g_bow_poses, next_dir)
     _event_flag = 120
     write_output_integer_register(0, _event_flag)
   end

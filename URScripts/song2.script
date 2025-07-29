@@ -176,9 +176,6 @@ def song():
   end
 
   def string_crossing(start_bow_poses, end_bow_poses, next_dir):
-    # local a_to_d_frog=[ 0.03885732, -0.01042583, -0.03909307, -3.27378675, -4.54905543, 2.23515599]
-    # local a_to_d_mid=[2.55715648e-03, -8.51565664e-02, -1.08389974e-01, -3.21889652e+00, -4.49939765e+00,  2.21639600e+00]
-    # local a_to_d_tip=[-0.03416493, -0.12050286, -0.17569119, -3.16488982, -4.45964209, 2.20089496]
     # we first find the curr position
     local tcp_pose = get_actual_tcp_pose()
     local start_p = [tcp_pose[0], tcp_pose[1], tcp_pose[2], tcp_pose[3], tcp_pose[4], tcp_pose[5]]
@@ -188,19 +185,24 @@ def song():
 
     local dist_from_tip = norm(end_bow_poses.tip_p - end_bow_poses.frog_p) * norm(start_p - start_bow_poses.frog_p) / norm(start_bow_poses.tip_p - start_bow_poses.frog_p)
 
-    local out = [0.89583677, 0.04158029, 0.44243367, 0, 0, 0]
-    local step1 = start_p + out * 0.03
-    # local step2 = end_bow_poses.frog_p + direction_vector *  dist_from_tip * 0.25 #+ out * 0.04
+    # from current position, we first move out in the x and z directions so we dont crash the bow
+    # lets just do this a fixed amount every time, providing a "safe" clearance
+    local out = [0.6, 0.0, 0.5, 0, 0, 0]
+    local step1 = start_p + out
+    # after adjustments on teach pendant, rotations are constant throughout a given bowing
+    local step2 = [step1[0], step1[1], step1[2], end_bow_poses.frog_p[3], end_bow_poses.frog_p[4], end_bow_poses.frog_p[5]]
+    # lastly, we adjust the x, y, z positions to fit a point along the line from frog to tip for the ending string
+    # that is closest to the starting position 
     local target_pose = end_bow_poses.frog_p + direction_vector *  dist_from_tip
-    movep(p[step1[0], step1[1], step1[2], start_p[3], start_p[4], start_p[5]])
-    movep(p[step1[0], step1[1], step1[2], d_bow_poses.frog_p[3], d_bow_poses.frog_p[4], d_bow_poses.frog_p[5]])
+    
+    movel(p[step1[0], step1[1], step1[2], step1[3], step1[4], step1[5]])
+    movep(p[step2[0], step2[1], step2[2], step2[3], step2[4], step2[5]])
     sync()
-    # movej(p[step2[0], step2[1], step2[2], step2[3], step2[4], step2[5]])
-    # sync()
     movep(p[target_pose[0], target_pose[1], target_pose[2], target_pose[3], target_pose[4], target_pose[5]])
     # sync()
-
   end
+
+
 
   def a_to_d(next_dir=0):
     _event_flag = 101
