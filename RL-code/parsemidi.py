@@ -59,18 +59,40 @@ def parse_midi(file_path, clef="bass"):
         for i, note in enumerate(raw_notes):
             current_string = note['string']
             next_string = raw_notes[i + 1]['string'] if i + 1 < len(raw_notes) else None
-            note_events.append(note)
-
-            if next_string and next_string != current_string:
+            # modification -- added bowing logic
+            #note_events.append(note)
+            if i == 0:
+                note_events.append({
+                    'number': note['number'],
+                    'note': note['note'],
+                    'duration': note['duration'],
+                    'string': note['string'],
+                    'bowing': 'down',
+                    'start_time': note['start_time'],
+                    'end_time': note['end_time'] 
+                })
+            elif next_string and next_string != current_string:
                 note_events.append({
                     'number': 'transition',
                     'note': "transition",
                     'duration': 0.2,
                     'string': f"{current_string}-{next_string}",
+                    'bowing': 'transition',
                     'start_time': note['end_time'],
                     'end_time': note['end_time'] + 0.2
                 })
-
+            else:
+                prior_note_bowing = note_events[-1]['bowing'] if note_events else 'up'
+                new_bowing = 'up' if prior_note_bowing == 'down' else 'down'
+                note_events.append({
+                    'number': note['number'],
+                    'note': note['note'],
+                    'duration': note['duration'],
+                    'string': note['string'],
+                    'bowing': new_bowing,
+                    'start_time': note['start_time'],
+                    'end_time': note['end_time']
+                })
     return note_events
 
 def get_note_name(note_number):
@@ -81,7 +103,10 @@ def get_note_name(note_number):
 
 def get_function_sequence(note_sequence):
     res = ""
-    bow_direction = True
+    if note_sequence[0]['bowing'] == 'down':
+        bow_direction = True
+    else:
+        bow_direction = False
 
     for note in note_sequence:
         function = script_funcs[note["string"]]
@@ -99,7 +124,10 @@ def get_function_sequence(note_sequence):
     res = ""
 
     # for bow_direction, True is down bow (towards tip) and False is up bow (towards frog)
-    bow_direction = True
+    if note_sequence[0]['bowing'] == 'down':
+        bow_direction = True
+    else:
+        bow_direction = False
     note_num = 0
 
     for i, note in enumerate(note_sequence):

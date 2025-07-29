@@ -12,7 +12,7 @@ import logging # Added for example_control_loop's logging setup
 # ================================
 # Configuration (Keep existing, add DASHBOARD_PORT)
 # ================================
-ROBOT_IP = "192.168.0.119"
+ROBOT_IP = "10.165.11.242"
 ROBOT_PORT = 30004  # RTDE Port
 UR_PRIMARY_PORT = 30002 # Primary Interface Port for URScript
 DASHBOARD_PORT = 29999 # Dashboard Server Port
@@ -23,7 +23,7 @@ CONFIG_FILENAME = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualR
 MIDI_FILE_PATH = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid"
 BOWING_FILE = "None"
 SONG_SCRIPT_TEMPLATE = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song.script"
-OUTPUT_LOG_FILENAME = "long-log-detailed-test.csv"
+OUTPUT_LOG_FILENAME = "allegro-detailed-test-irl.csv"
 DEFAULT_TEMPO_BPM = 120
 
 # ================================
@@ -459,6 +459,7 @@ def send_urscript(urscript, speed_scaling, note_sequence_timed):
                     "current_note_number": current_note_info.get('number', None) if current_note_info else None,
                     "current_note_name": current_note_info.get('note', None) if current_note_info else None,
                     "current_string": current_note_info.get('string', None) if current_note_info else None,
+                    "current_bowing": current_note_info.get('bowing', None) if current_note_info else None,
                     "remaining_duration_sec": remaining_duration_sec,
                     "has_note_changed": has_note_changed,
                     "TCP_pose_x": state.actual_TCP_pose[0],

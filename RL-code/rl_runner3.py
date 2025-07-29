@@ -7,18 +7,17 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from rl_trajectory import UR5eCelloTrajectoryEnv, Preprocessor, BehavioralCloningModel # Import the Preprocessor and BC model
 from parsemidi import parse_midi
 import pandas as pd
-import torch.nn as nn # Needed for BehavioralCloningModel definition
+import torch.nn as nn 
 
-# ... (extract_joint_angles function remains the same)
+
 def extract_joint_angles(csv_filename):
     df = pd.read_csv(csv_filename)
-    # from rtde collection actual_q which is joint positions 
     cols = ['q_base','q_shoulder','q_elbow','q_wrist1','q_wrist2','q_wrist3']
     return df[cols].values.tolist()
 def extract_joint_angles_and_timestamps(csv_filename):
     df = pd.read_csv(csv_filename)
-    joint_cols = ['q_base','q_shoulder','q_elbow','q_wrist1','q_wrist2','q_wrist3']
-    return df[joint_cols].values.tolist(), df["timestamp_robot"].values.tolist()
+    cols = ['q_base','q_shoulder','q_elbow','q_wrist1','q_wrist2','q_wrist3']
+    return df[cols].values.tolist(), df["timestamp_robot"].values.tolist()
 
 
 
@@ -27,11 +26,11 @@ if __name__ == '__main__':
     # Define paths for your data and model
     # Make sure these CSV_FILES paths match where your detailed logs are saved
     CSV_FILES = [
-    '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/allegro-log-detailed-test.csv',
-    '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/twinkle-log-detailed-test.csv',
-    '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/perpetual-log-detailed-test.csv',
-    '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/long-log-detailed-test.csv',
-    '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/minuet-log-detailed-test.csv',
+    '/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/allegro-log-detailed-test.csv',
+    '/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/twinkle-log-detailed-test.csv',
+    '/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/perpetual-log-detailed-test.csv',
+    '/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/long-log-detailed-test.csv',
+    '/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/minuet-log-detailed-test.csv',
     ]   
 
     # You still need to extract a `trajectory` and `note_sequence` to pass to the environment
@@ -43,13 +42,14 @@ if __name__ == '__main__':
     example_trajectory, _ = extract_joint_angles_and_timestamps(CSV_FILES[0]) # Assuming your log_runner extract function
     
     # If using `parse_midi`, ensure `your_midi_file.mid` exists
-    notes_sequence = parse_midi('/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid') # Replace with actual MIDI file
+    # this is what i need to change to add in bowing
+    notes_sequence = parse_midi('/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid') # Replace with actual MIDI file
 
     # Dummy notes for now if you don't have a MIDI file set up yet
     #notes_sequence = [{"note_number": 60, "duration": 1.0, "start_time": 0.0}]
 
 
-    scene_path = '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello/MuJoCo_RL_UR5/env_experiment/universal_robots_ur5e/scene.xml'
+    scene_path = '/Users/skamanski/Documents/GitHub/Robot-Cello/MuJoCo_RL_UR5/env_experiment/universal_robots_ur5e/scene.xml'
     # Ensure this path is correct for your MuJoCo model
 
     # Instantiate the environment with BC model paths

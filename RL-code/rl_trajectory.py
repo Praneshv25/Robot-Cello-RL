@@ -2,7 +2,7 @@ import gym
 from gym import spaces
 import mujoco
 import contact
-from parsemidi import parse_midi # Assuming parse_midi is available in current scope or imported correctly
+#from parsemidi import parse_midi 
 import pandas as pd
 import numpy as np
 import time
@@ -10,13 +10,13 @@ import sys
 import os
 import mujoco.viewer 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Baseline-Runners')))
-import robot_runner  # baseline controller
-import torch.nn as nn  # Ensure PyTorch is imported for the model
+#import robot_runner  # baseline controller
+import torch.nn as nn 
 import torch
 import pickle
 
-from sklearn.preprocessing import MinMaxScaler, OneHotEncoder # Ensure these are imported
-from scipy.spatial.transform import Rotation as R # Import for rotation conversion
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder 
+from scipy.spatial.transform import Rotation as R # idk about this
 
 
 # robot joints need to align with xml description
@@ -28,9 +28,6 @@ MUJOCO_JOINT_NAME_MAP = {
     'q_wrist2': 'wrist_2_joint',
     'q_wrist3': 'wrist_3_joint',
 }
-
-
-
 
 # BC Architecture (must align with BC code!!!)
 class BehavioralCloningModel(nn.Module):
@@ -50,27 +47,23 @@ class BehavioralCloningModel(nn.Module):
         x = self.fc3(x)
         return x
 
-# --- Static helper methods for preprocessing (copy from CelloTrajectoryDataset) ---
-# Make sure these are static methods or standalone functions
-# This is to correctly preprocess single observations from the environment.
 class Preprocessor:
-    # INPUT_FEATURE_COLS and TARGET_COLS should be accessible or passed.
-    # For now, let's redefine them here for clarity or import them from a config file.
     INPUT_FEATURE_COLS = [
         'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3',
         'TCP_pose_x', 'TCP_pose_y', 'TCP_pose_z', 'TCP_pose_rx', 'TCP_pose_ry', 'TCP_pose_rz',
         'time_elapsed_sec', 'remaining_duration_sec', 'current_note_number',
-        'current_string', 'event_label', 'event_flag'
+        'current_string', 'event_label', 'event_flag', 'current_bowing'
     ]
     TARGET_COLS = [
         'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3'
     ]
 
-    CATEGORICAL_COLS = ['current_string', 'event_label']
+    CATEGORICAL_COLS = ['current_string', 'event_label', 'current_bowing']
     
-    HIDDEN_SIZE = 256 # Should match what you used for BC training
+    HIDDEN_SIZE = 256 # Should match what was used for BC training
 
     @staticmethod
+    # no
     def _infer_bow_direction(event_label):
         if 'a_bow' in str(event_label).lower() or 'up' in str(event_label).lower():
             return 'up'
@@ -147,7 +140,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
     def __init__(
         self,
         model_path: str,
-        trajectory: list, # This might be unused now if BC is primary
+        trajectory: list, # unused?
         note_sequence: list,
         render_mode=None,
         action_scale: float = 0.05,
@@ -170,7 +163,6 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         self.sim_dt = self.model.opt.timestep
 
         # --- RL hyperparameters ---
-        # self.action_scale = action_scale # This line is replaced/repurposed below
         self.residual_penalty = residual_penalty
         self.contact_penalty = contact_penalty
         self.torque_penalty = torque_penalty
@@ -178,9 +170,6 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         # --- PID gains ---
         self.kp, self.kd, self.ki = kp, kd, ki
         self.total_pid_error = np.zeros(6)
-
-        # self.base_ctrl = robot_runner.CelloController(...) # REMOVED THIS BLOCK
-        # self.demo_traj = np.array(trajectory) # Keep this if used for reward calculation, otherwise remove
 
         # --- Musical notes & string mapping ---
         self.note_sequence = note_sequence
@@ -210,7 +199,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
                 'q_base': 0.0, 'q_shoulder': 0.0, 'q_elbow': 0.0, 'q_wrist1': 0.0, 'q_wrist2': 0.0, 'q_wrist3': 0.0,
                 'TCP_pose_x': 0.0, 'TCP_pose_y': 0.0, 'TCP_pose_z': 0.0, 'TCP_pose_rx': 0.0, 'TCP_pose_ry': 0.0, 'TCP_pose_rz': 0.0,
                 'time_elapsed_sec': 0.0, 'remaining_duration_sec': 0.0, 'current_note_number': 60,
-                'current_string': 'A', 'event_label': 'START a_bow', 'event_flag': 1
+                'current_string': 'A', 'event_label': 'START a_bow', 'event_flag': 1, 'current_bowing': 'down'
             }
             
             
@@ -271,7 +260,6 @@ class UR5eCelloTrajectoryEnv(gym.Env):
             raise ValueError("TCP_point site not found in MuJoCo model. Please check your XML model.")
         print(f'TCP site ID: {self.tcp_site_id}')
        
-        # TODO : from each string site, compute the ideal string line
         self.string_lines = {}
         for site in self.string_sites.values():
             frog, tip = site
@@ -379,6 +367,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
                  return {
                     'note_number': 0, # Placeholder for no active note
                     'string': 'None',
+                    'bowing': 'none', # No bowing if no active note
                     'event_label': 'END_SEQUENCE',
                     'event_flag': 0,
                     'duration_sec': 0.0
@@ -389,15 +378,14 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         while (self.current_midi_note_idx < len(self.note_sequence) - 1 and # Ensure not trying to go past last note
                self.data.time >= self.cumulative_note_durations[self.current_midi_note_idx + 1]):
             self.current_midi_note_idx += 1
-        
         if self.current_midi_note_idx < len(self.note_sequence):
             current_note = self.note_sequence[self.current_midi_note_idx]
-            
             # Construct dictionary for observation, using 'number' for note_number
             # and 'duration' for duration_sec, as per parse_midi output.
             note_info_for_obs = {
                 'note_number': current_note.get('number', 0), # Corrected key from 'note' to 'number' as per parse_midi
                 'string': current_note.get('string', 'None'), # 'string' is directly provided by parse_midi
+                'bowing': current_note.get('bowing', 'none'), # Use 'bowing' key if available, else default to 'none'
                 'duration_sec': current_note.get('duration', 0.5), # Use 'duration' key directly from parse_midi
                 'event_label': current_note.get('event_label', ''), # Try to get 'event_label' if it exists
                 'event_flag': current_note.get('event_flag', 0) # Try to get 'event_flag' if it exists
@@ -409,6 +397,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
             return {
                 'note_number': 0,
                 'string': 'None',
+                'bowing': 'none', # No bowing if no active note
                 'event_label': 'END_SEQUENCE',
                 'event_flag': 0,
                 'duration_sec': 0.0
@@ -431,7 +420,16 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         elif raw_s == 'None': # Handle end of sequence or unmapped notes
             return 'None'
         return raw_s # Should be 'A', 'D', 'G', 'C' directly if no hyphen
-
+    def _get_current_bowing(self):
+        """
+        Returns the bowing direction based on the current event label.
+        Uses the _infer_bow_direction method to determine the bowing direction.
+        """
+        note_info = self._get_current_note_info()
+        raw_b = note_info['bowing']
+        if raw_b is None or raw_b == '':
+            return 'none'
+        return raw_b.lower()
     def _get_current_event_label(self):
         """
         Synthesizes an event label (e.g., 'START a_bow', 'END_SEQUENCE')
@@ -513,6 +511,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
             'remaining_duration_sec': self.total_duration - self.data.time, # Adjust if your duration logic is different
             'current_note_number': self._get_current_note_number(), 
             'current_string': self._get_current_string(), 
+            'current_bowing': self._get_current_bowing(),
             'event_label': self._get_current_event_label(), 
             'event_flag': self._get_current_event_flag() 
         }
@@ -606,10 +605,8 @@ class UR5eCelloTrajectoryEnv(gym.Env):
                 else:
                     dist = 0.0
             info['bow_string_dist'] = dist
-            r -= dist # Penalize distance from string
+            r -= dist 
 
-        # --- 3. Contact Penalty ---
-        # (From your original _compute_reward)
         collision, _, _ = contact.detect_collision(self.model, self.data)
         if collision:
             r -= self.contact_penalty

@@ -19,8 +19,6 @@ CSV_FILES = [
     '/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/minuet-log-detailed-test.csv',
 ]
 
-
-
 # Observation input features from csv data
 INPUT_FEATURE_COLS = [
     # curr robot joint states + tcp pose for closed-loop control
@@ -31,6 +29,7 @@ INPUT_FEATURE_COLS = [
     'remaining_duration_sec',
     'current_note_number', # remember there is also 'transition'
     'current_string',
+    'current_bowing', # 'up' 'down' or 'transition'
     'event_label',
     'event_flag'
 ]
@@ -38,7 +37,7 @@ INPUT_FEATURE_COLS = [
 # will be predicted for curr timestep as BC action
 # fix to predict TCP position, not q_pos
 TARGET_COLS = [
-    'TCP_pose_x', 'TCP_pose_y', 'TCP_pose_z', 'TCP_pose_rx', 'TCP_pose_ry', 'TCP_pose_rz' 
+    'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3' 
 ]
 
 # --- Neural Network Parameters (might wanna change) ---
@@ -71,7 +70,8 @@ class CelloTrajectoryDataset(Dataset):
         df_features['current_note_number'] = df_features['current_note_number'].fillna(0) # Fill NaN with 0
 
         # Numerical features (Robot State & direct Musical Context numerics)
-        numerical_cols = [col for col in self.feature_cols if col not in ['current_string', 'event_label', 'event_flag']]
+        # Exclude 'current_bowing' from numerical features as it's now categorical
+        numerical_cols = [col for col in self.feature_cols if col not in ['current_string', 'current_bowing', 'event_label', 'event_flag']]
         for col in numerical_cols:
             if col in self.scalers:
                 processed_features.append(self.scalers[col].transform(df_features[[col]]))
@@ -82,12 +82,11 @@ class CelloTrajectoryDataset(Dataset):
         # Categorical features (one-hot encode)
         # current_string
         current_string_encoded = self.one_hot_encoders['current_string'].transform(df_features[['current_string']])
-        processed_features.append(current_string_encoded) # Removed .toarray()
+        processed_features.append(current_string_encoded)
 
-        # bow_direction (inferred from event_label)
-        bow_direction_df = self._infer_bow_direction(df_features['event_label'])
-        bow_direction_encoded = self.one_hot_encoders['bow_direction'].transform(bow_direction_df[['bow_direction']])
-        processed_features.append(bow_direction_encoded) # Removed .toarray()
+        # current_bowing (now directly from column)
+        current_bowing_encoded = self.one_hot_encoders['current_bowing'].transform(df_features[['current_bowing']])
+        processed_features.append(current_bowing_encoded)
 
         # is_transition (inferred from event_flag / event_label)
         is_transition_df = self._infer_is_transition(df_features['event_flag'], df_features['event_label'])
@@ -105,22 +104,12 @@ class CelloTrajectoryDataset(Dataset):
                 processed_targets.append(df_targets[[col]].values)
         return np.hstack(processed_targets)
 
-    def _infer_bow_direction(self, event_labels):
-        bow_directions = []
-        for label in event_labels:
-            if 'a_bow' in label.lower(): # Assuming 'a_bow' for up-bow, case-insensitive
-                bow_directions.append('up')
-            elif 'd_bow' in label.lower(): # Assuming 'd_bow' for down-bow, case-insensitive
-                bow_directions.append('down')
-            else:
-                bow_directions.append('none') # Or another appropriate default
-        return pd.DataFrame(bow_directions, columns=['bow_direction'])
 
     def _infer_is_transition(self, event_flags, event_labels):
         is_transitions = []
         for flag, label in zip(event_flags, event_labels):
             # Check for specific 'TRANSITION' in label, or if event_flag indicates a special type
-            if 'TRANSITION' in label.upper() or not (1 <= flag <= 8): 
+            if 'TRANSITION' in str(label).upper() or not (1 <= flag <= 8): # Ensure label is string for .upper()
                 is_transitions.append(1)
             else:
                 is_transitions.append(0)
@@ -173,7 +162,12 @@ def train_bc_model(csv_files, model_save_path="bc_policy.pth", scalers_save_path
     full_df['current_note_number'] = pd.to_numeric(full_df['current_note_number'], errors='coerce')
     full_df['current_note_number'] = full_df['current_note_number'].fillna(0) # Fill NaN with 0 for scaling
 
-    numerical_feature_cols = [col for col in INPUT_FEATURE_COLS if col not in ['current_string', 'event_label', 'event_flag']]
+    # Ensure 'current_bowing' is a string type to avoid issues with OneHotEncoder
+    full_df['current_bowing'] = full_df['current_bowing'].astype(str)
+
+    # Numerical features (Robot State & direct Musical Context numerics)
+    # Exclude 'current_bowing' here too
+    numerical_feature_cols = [col for col in INPUT_FEATURE_COLS if col not in ['current_string', 'current_bowing', 'event_label', 'event_flag']]
     for col in numerical_feature_cols:
         scaler = MinMaxScaler()
         full_df[col] = scaler.fit_transform(full_df[[col]]) 
@@ -191,11 +185,13 @@ def train_bc_model(csv_files, model_save_path="bc_policy.pth", scalers_save_path
     encoder_cs.fit(np.array(all_strings).reshape(-1, 1))
     one_hot_encoders['current_string'] = encoder_cs
 
-    # bow_direction encoder (up/down/none)
-    encoder_bd = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
-    all_bow_directions = ['up', 'down', 'none'] 
-    encoder_bd.fit(np.array(all_bow_directions).reshape(-1, 1))
-    one_hot_encoders['bow_direction'] = encoder_bd
+    # current_bowing encoder (up/down/transition/none)
+    encoder_cb = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    # It's important to list all possible categories that might appear in 'current_bowing'
+    # 'transition' is used for note transitions where bowing might be undefined.
+    all_bowings = ['up', 'down', 'transition', 'none'] # 'none' for any potentially missing/unexpected values
+    encoder_cb.fit(np.array(all_bowings).reshape(-1, 1))
+    one_hot_encoders['current_bowing'] = encoder_cb
     
     # Save scalers and encoders
     with open(scalers_save_path, 'wb') as f:
@@ -284,37 +280,34 @@ if __name__ == '__main__':
     #        single_obs_df['current_note_number'] = single_obs_df['current_note_number'].fillna(0)
     #
     #        processed_features = []
-    #        numerical_cols = [col for col in INPUT_FEATURE_COLS if col not in ['current_string', 'event_label', 'event_flag']]
+    #        # Exclude 'current_bowing' from numerical features list
+    #        numerical_cols = [col for col in INPUT_FEATURE_COLS if col not in ['current_string', 'current_bowing', 'event_label', 'event_flag']]
     #        for col in numerical_cols:
     #            processed_features.append(loaded_scalers[col].transform(single_obs_df[[col]]))
     #
     #        current_string_encoded = loaded_encoders['current_string'].transform(single_obs_df[['current_string']])
-    #        processed_features.append(current_string_encoded) # No .toarray()
+    #        processed_features.append(current_string_encoded)
     #
-    #        # Replicate bow direction inference for a single observation
-    #        # You'll need to pass the actual event_label value from the current observation
-    #        # A robust way would be to make _infer_bow_direction a static method or a separate function
-    #        # For now, let's assume you pass the `event_label` correctly
-    #        bow_direction_value = CelloTrajectoryDataset(pd.DataFrame(), [], [], {}, {})._infer_bow_direction(single_obs_df['event_label'])[0] # This won't work easily if not static
-    #        # A better way for single obs:
-    #        if 'a_bow' in str(raw_obs_dict.get('event_label', '')).lower(): bow_dir = 'up'
-    #        elif 'd_bow' in str(raw_obs_dict.get('event_label', '')).lower(): bow_dir = 'down'
-    #        else: bow_dir = 'none'
-    #        bow_direction_encoded = loaded_encoders['bow_direction'].transform(np.array([[bow_dir]]))
-    #        processed_features.append(bow_direction_encoded) # No .toarray()
+    #        # Use 'current_bowing' directly from the observation dictionary
+    #        # Ensure it's treated as a string and handle potential NaNs or unexpected values
+    #        bow_direction_val = str(raw_obs_dict.get('current_bowing', 'none')) # Default to 'none' if missing
+    #        bow_direction_encoded = loaded_encoders['current_bowing'].transform(np.array([[bow_direction_val]]))
+    #        processed_features.append(bow_direction_encoded)
     #
     #        # Replicate is_transition inference for a single observation
-    #        # Same considerations for static method/separate function apply
-    #        # For single obs:
     #        is_transition_val = 0
-    #        if 'TRANSITION' in str(raw_obs_dict.get('event_label', '')).upper() or not (1 <= raw_obs_dict.get('event_flag', 0) <= 6):
+    #        # Ensure these keys exist in raw_obs_dict and handle types
+    #        event_label_val = str(raw_obs_dict.get('event_label', ''))
+    #        event_flag_val = raw_obs_dict.get('event_flag', 0)
+    #
+    #        if 'TRANSITION' in event_label_val.upper() or not (1 <= event_flag_val <= 8):
     #            is_transition_val = 1
     #        processed_features.append(np.array([[is_transition_val]]))
     #
     #        return np.hstack(processed_features).flatten()
     #
     # 3. Load the model:
-    # model_input_dim = # <--- Use the input dimension printed during training (e.g., 22)
+    # model_input_dim = # <--- Use the input dimension printed during training (e.g., 22 or whatever it becomes)
     # loaded_model = BehavioralCloningModel(model_input_dim, len(TARGET_COLS), HIDDEN_SIZE)
     # loaded_model.load_state_dict(torch.load('bc_policy.pth'))
     # loaded_model.eval() # Set to evaluation mode
@@ -329,6 +322,7 @@ if __name__ == '__main__':
     #    #    'remaining_duration_sec': (current_note_end_time - self.data.time),
     #    #    'current_note_number': get_current_midi_note_number(), 
     #    #    'current_string': get_current_string_name(),
+    #    #    'current_bowing': get_current_bowing_direction(), # Get directly from your musical context
     #    #    'event_label': get_current_event_label(),
     #    #    'event_flag': get_current_event_flag()
     #    # }
