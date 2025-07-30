@@ -1,3 +1,4 @@
+#set_speed(0.8)
 def song():
   global _hidden_verificationVariable=0
   set_tcp(p[0.028210348281514253,-0.09610723587300697,-0.09969041498611403,0.0,0.0,0.0])
@@ -33,24 +34,29 @@ def song():
 
   global a_bow_poses = struct(
     tip_p=[.434228571425, .379036635826, .270037302812, -1.543999992769, -2.355000000559, 1.347000003373], 
-    frog_p=[.300710000014, .793569999983, .099710000017, -1.544000000893, -2.354999999336, 1.346999999882]
+    frog_p=[.300710000014, .793569999983, .099710000017, -1.544000000893, -2.354999999336, 1.346999999882],
+    out_p=[]
   )
 
   global d_bow_poses = struct(
-    tip_p=[..390527951914, .250624711074, .085303140109, -1.300458031573, -1.807278747083, 1.083030401163],
-    frog_p=[.387845836117, .702738171432, .082191176809, -1.300458031986, -1.807278747687, 1.083030400613]
+    tip_p=[.390527951914, .250624711074, .085303140109, -1.300458031573, -1.807278747083, 1.083030401163],
+    frog_p=[.387845836117, .702738171432, .082191176809, -1.300458031986, -1.807278747687, 1.083030400613],
+    out_p=[]
   )
 
   global g_bow_poses = struct(
     tip_p=[.235454907564, .227041182568, .058654929533, -1.613292236378, -1.724990757347, .780935321780], 
-    frog_p=[.328691291441, .642471039723, .090408804986, -1.613292235820, -1.724990757094, .780935322133]
+    frog_p=[.328691291441, .642471039723, .090408804986, -1.613292235820, -1.724990757094, .780935322133],
+    out_p=[]
   )
 
   global c_bow_poses = struct(
     tip_p=[.155115285051, .293828929686, .011744083578, -1.647252089555, -1.473111089555, .599741687736],
-    frog_p=[.299975238361, .589243545784, .078347625249, -1.647252090486, -1.473111089874, .599741687349]
+    frog_p=[.299975238361, .589243545784, .078347625249, -1.647252090486, -1.473111089874, .599741687349],
+    out_p=[]
   )
-
+  
+  # solution -- hard code "out" positions for each string
   def ease_scale(note_dur):
     if note_dur > 3:
         note_dur = 3
@@ -188,7 +194,7 @@ def song():
     # from current position, we first move out in the x and z directions so we dont crash the bow
     # lets just do this a fixed amount every time, providing a "safe" clearance
     local out = [0.6, 0.0, 0.5, 0, 0, 0]
-    local step1 = start_p + out
+    local step1 = start_p + out * 0.3
     # after adjustments on teach pendant, rotations are constant throughout a given bowing
     local step2 = [step1[0], step1[1], step1[2], end_bow_poses.frog_p[3], end_bow_poses.frog_p[4], end_bow_poses.frog_p[5]]
     # lastly, we adjust the x, y, z positions to fit a point along the line from frog to tip for the ending string
@@ -284,7 +290,162 @@ def song():
     write_output_integer_register(0, _event_flag)
   end
 
-  # $$$ CODE HERE $$$
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.9990)
+  stay()
+  d_to_a()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.9990)
+  stay()
+  d_to_a()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_to_a()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_to_a()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.9990)
+  stay()
+  d_to_a()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.9990)
+  stay()
+  
   
 end
 

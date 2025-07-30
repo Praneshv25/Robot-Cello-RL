@@ -12,9 +12,10 @@ import logging # Added for example_control_loop's logging setup
 # ================================
 # Configuration (Keep existing, add DASHBOARD_PORT)
 # ================================
-ROBOT_IP = "192.168.0.119"
+#ROBOT_IP = "192.168.0.119"
+ROBOT_IP = "10.165.11.242"
 ROBOT_PORT = 30004  # RTDE Port
-UR_PRIMARY_PORT = 30002 # Primary Interface Port for URScript
+UR_PRIMARY_PORT = 30001 # Primary Interface Port for URScript
 DASHBOARD_PORT = 29999 # Dashboard Server Port
 
 CLEF = "bass"
@@ -23,7 +24,7 @@ CONFIG_FILENAME = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualR
 MIDI_FILE_PATH = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid"
 BOWING_FILE = "None"
 SONG_SCRIPT_TEMPLATE = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song2.script"
-OUTPUT_LOG_FILENAME = "allegro-detailed-test-song2.csv"
+OUTPUT_LOG_FILENAME = "allegro-detailed-test-newaypoints.csv"
 DEFAULT_TEMPO_BPM = 120
 
 # ================================
@@ -306,7 +307,7 @@ def send_urscript(urscript, speed_scaling, note_sequence_timed):
         print("⚠️ Warning: URScript is large and might exceed robot buffer limits.")
 
     print("--- URScript to be sent ---")
-    # print(full_urscript) # Uncomment to debug
+    print(full_urscript) # Uncomment to debug
     print("--- End URScript ---")
 
     print(f"Connecting to RTDE at {ROBOT_IP}:{ROBOT_PORT}...")
@@ -365,8 +366,8 @@ def send_urscript(urscript, speed_scaling, note_sequence_timed):
             time.sleep(0.5)
 
         # Optional: Start the robot program via dashboard (if it's not started by sending the script)
-        # dashboard_play_with_wait() # This might interfere if the script auto-runs
-
+        #dashboard_play_with_wait() # This might interfere if the script auto-runs
+        #time.sleep(0.5)
         # --- Start RTDE Data Synchronization ---
         if not con.send_start():
             print("❌ Failed to start RTDE data synchronization.")
