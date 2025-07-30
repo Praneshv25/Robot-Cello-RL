@@ -35,7 +35,6 @@ INPUT_FEATURE_COLS = [
 ]
 
 # will be predicted for curr timestep as BC action
-# fix to predict TCP position, not q_pos
 TARGET_COLS = [
     'q_base', 'q_shoulder', 'q_elbow', 'q_wrist1', 'q_wrist2', 'q_wrist3' 
 ]
@@ -166,7 +165,6 @@ def train_bc_model(csv_files, model_save_path="bc_policy.pth", scalers_save_path
     full_df['current_bowing'] = full_df['current_bowing'].astype(str)
 
     # Numerical features (Robot State & direct Musical Context numerics)
-    # Exclude 'current_bowing' here too
     numerical_feature_cols = [col for col in INPUT_FEATURE_COLS if col not in ['current_string', 'current_bowing', 'event_label', 'event_flag']]
     for col in numerical_feature_cols:
         scaler = MinMaxScaler()
@@ -187,9 +185,7 @@ def train_bc_model(csv_files, model_save_path="bc_policy.pth", scalers_save_path
 
     # current_bowing encoder (up/down/transition/none)
     encoder_cb = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
-    # It's important to list all possible categories that might appear in 'current_bowing'
-    # 'transition' is used for note transitions where bowing might be undefined.
-    all_bowings = ['up', 'down', 'transition', 'none'] # 'none' for any potentially missing/unexpected values
+    all_bowings = ['up', 'down', 'transition', 'none'] 
     encoder_cb.fit(np.array(all_bowings).reshape(-1, 1))
     one_hot_encoders['current_bowing'] = encoder_cb
     

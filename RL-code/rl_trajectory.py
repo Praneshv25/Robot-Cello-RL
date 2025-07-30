@@ -74,14 +74,11 @@ class Preprocessor:
 
     @staticmethod
     def _infer_is_transition(event_flag, event_label):
-        # If event_label explicitly contains 'TRANSITION', it's a transition.
         if 'TRANSITION' in str(event_label).upper():
             return 1
-        # Based on typical logs, event_flag 1-8 corresponds to note START/END.
-        # If it's within this range, it's a note, not a transition.
         if 1 <= event_flag <= 8:
-            return 0
-        return 1 # Otherwise, assume it's a transition or other non-note event
+            return 0 # regular note
+        return 1 
 
     @staticmethod
     def preprocess_observation(raw_obs_dict, loaded_scalers, loaded_encoders, input_feature_cols):
@@ -143,7 +140,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         trajectory: list, # unused?
         note_sequence: list,
         render_mode=None,
-        action_scale: float = 0.05,
+        action_scale: float = 0.10,
         residual_penalty: float = 0.01,
         contact_penalty: float = 0.1,
         torque_penalty: float = 0.001,
@@ -155,6 +152,9 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         bc_scalers_path: str = "bc_scalers.pkl",
         bc_encoders_path: str = "bc_encoders.pkl",
         bc_hidden_size: int = 256,
+        on_line_bonus: float = 1.0,
+        dist_penalty_coeff: float = 100.0,
+        perpendicularity_penalty_coeff: float = 150.0
     ):
         super().__init__()
         # --- MuJoCo setup ---
@@ -178,7 +178,6 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         self.cumulative_note_durations = [0.0]
         cumulative_sum = 0.0
         for note in self.note_sequence:
-            # Use 'duration' key from parse_midi output
             cumulative_sum += note.get('duration', 0.5) 
             self.cumulative_note_durations.append(cumulative_sum)
         self.total_midi_duration = cumulative_sum
@@ -199,7 +198,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
                 'q_base': 0.0, 'q_shoulder': 0.0, 'q_elbow': 0.0, 'q_wrist1': 0.0, 'q_wrist2': 0.0, 'q_wrist3': 0.0,
                 'TCP_pose_x': 0.0, 'TCP_pose_y': 0.0, 'TCP_pose_z': 0.0, 'TCP_pose_rx': 0.0, 'TCP_pose_ry': 0.0, 'TCP_pose_rz': 0.0,
                 'time_elapsed_sec': 0.0, 'remaining_duration_sec': 0.0, 'current_note_number': 60,
-                'current_string': 'A', 'event_label': 'START a_bow', 'event_flag': 1, 'current_bowing': 'down'
+                'current_string': 'A', 'current_bowing': 'down', 'event_label': 'START a_bow', 'event_flag': 1
             }
             
             
@@ -211,7 +210,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
 
             self.bc_model = BehavioralCloningModel(bc_input_dim, bc_output_dim, bc_hidden_size)
             self.bc_model.load_state_dict(torch.load(bc_policy_path))
-            self.bc_model.eval() # Set to evaluation mode
+            self.bc_model.eval() # evaluation mode
 
             print(f"Successfully loaded BC model and preprocessors.")
 
@@ -221,8 +220,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
 
         # --- Action Space for RL Agent (Residuals) ---
         # The RL agent will predict small deltas for each joint.
-        # Max change per step for each joint. Adjust this based on how much correction
-        # you expect the RL agent to make.
+        # Max change per step for each joint. 
         # This will be in RADIANS for joint angles.
         self.action_space_range = action_scale # Renamed to be more explicit for residual
         self.action_space = spaces.Box(
@@ -232,7 +230,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
             dtype=np.float32,
         )
 
-        # --- Observation Space for RL Agent (Same as BC input) ---
+        # --- Observation Space for RL Agent (Should be same as BC input) ---
         self.observation_space = spaces.Box(
             low=-np.inf, # Scaled values can be negative
             high=np.inf, # Scaled values can be positive
@@ -244,6 +242,66 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         self.prev_torque = np.zeros(6)
         self.current_time = 0.0
         self.start_positions = start_joint_positions
+
+        # Store physical string endpoints (from 'fromto' in XML)
+        self.string_physical_endpoints = {}
+        for s in ('A', 'D', 'G', 'C'):
+            top_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f'{s}_string_physical_top')
+            bottom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f'{s}_string_physical_bottom')
+            if top_id == -1 or bottom_id == -1:
+                print(f"Warning: Physical top/bottom sites for {s} string not found. Ensure they are in XML.")
+                self.string_physical_endpoints[s] = (None, None)
+            else:
+                self.string_physical_endpoints[s] = (top_id, bottom_id)
+        print(f'String physical endpoints: {self.string_physical_endpoints}')
+
+        # # Store optimal bowing region sites (from your _bow_poses data)
+        # self.bow_region_tip_sites = {}
+        # self.bow_region_frog_sites = {}
+        # for s in ('A', 'D', 'G', 'C'):
+        #     tip_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f'{s}_bow_tip_region')
+        #     frog_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f'{s}_bow_frog_region')
+        #     if tip_id == -1: print(f"Warning: {s}_bow_tip_region site not found.")
+        #     if frog_id == -1: print(f"Warning: {s}_bow_frog_region site not found.")
+        #     self.bow_region_tip_sites[s] = tip_id
+        #     self.bow_region_frog_sites[s] = frog_id
+        # print(f'Bowing region tip sites: {self.bow_region_tip_sites}')
+        # print(f'Bowing region frog sites: {self.bow_region_frog_sites}')
+
+        # For the bow_hair geom for orientation and contact point
+        self.bow_hair_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "bow_hair")
+        if self.bow_hair_geom_id == -1:
+            raise ValueError("bow_hair geom not found in XML!")
+        print(f'Bow hair geom ID: {self.bow_hair_geom_id}')
+
+        # Get sensor IDs for direct pressure feedback
+        self.string_touch_sensor_ids = {
+            'A': mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, 'A_string_touch'),
+            'D': mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, 'D_string_touch'),
+            'G': mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, 'G_string_touch'),
+            'C': mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, 'C_string_touch'),
+        }
+        for s, sensor_id in self.string_touch_sensor_ids.items():
+            if sensor_id == -1:
+                print(f"Warning: {s}_string_touch sensor not found.")
+        print(f'String touch sensor IDs: {self.string_touch_sensor_ids}')
+
+        # initialize tcp_site_id (still useful for general TCP position)
+        self.tcp_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "TCP_point")
+        if self.tcp_site_id == -1:
+            site_names = [self.model.site(i).name for i in range(self.model.nsite)]
+            print("Available sites in model:", site_names)
+            raise ValueError("TCP_point site not found in MuJoCo model. Please check your XML model.")
+        print(f'TCP site ID: {self.tcp_site_id}')
+
+        # Pre-calculate target bowing lines for each string
+        self.target_bow_lines = self._calculate_target_bowing_lines()
+
+        self.on_line_bonus = on_line_bonus
+        self.dist_penalty_coeff = dist_penalty_coeff
+        self.perpendicularity_penalty_coeff = perpendicularity_penalty_coeff
+
+        """
         self.string_sites = {}
         for s in ('A','D','G','C'):
             frog = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, f'{s}_frog')
@@ -251,15 +309,15 @@ class UR5eCelloTrajectoryEnv(gym.Env):
             self.string_sites[s] = (frog, tip)
         print(f'String sites: {self.string_sites}')
 
-        # Add this block to initialize tcp_site_id
+        # initialize tcp_site_id
         self.tcp_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "TCP_point")
         if self.tcp_site_id == -1:
-            # It's good practice to raise an error if a critical site is not found
             site_names = [self.model.site(i).name for i in range(self.model.nsite)]
             print("Available sites in model:", site_names)
             raise ValueError("TCP_point site not found in MuJoCo model. Please check your XML model.")
         print(f'TCP site ID: {self.tcp_site_id}')
        
+       # should work better with the new waypoints
         self.string_lines = {}
         for site in self.string_sites.values():
             frog, tip = site
@@ -274,11 +332,108 @@ class UR5eCelloTrajectoryEnv(gym.Env):
             # allow for a vertical offset 
 
             self.string_lines[(frog, tip)] = string_line
+        """
         self.render_mode = render_mode
         self.viewer = None
 
         self.reset()
+    def _calculate_target_bowing_lines(self):
+        """
+        Calculates the ideal bowing line segment for each string,
+        ensuring it's perpendicular to the physical string and passes
+        through the midpoint of the measured optimal bowing region.
+        """
+        target_lines = {}
+        # Define your _bow_poses data as a class attribute or pass it
+        # For simplicity, I'll hardcode it here, but ideally load it from a file
+        # or pass it during environment creation.
+        _bow_poses_data = {
+            'A': {
+                "tip_p": np.array([.473129539189, .413197423330, .256308427905]),
+                "frog_p": np.array([.300717266074, .793568239540, .099710283103])
+            },
+            'D': {
+                "tip_p": np.array([.340413993945, .280157415162, .176342071758]),
+                "frog_p": np.array([.302785064368, .749849181019, .117254426008])
+            },
+            'G': {
+                "tip_p": np.array([.162016291992, .201320984957, .059414774157]),
+                "frog_p": np.array([.281203376642, .681662588607, .104672526365])
+            },
+            'C': {
+                "tip_p": np.array([.079815569355, .285182178102, -.086654726588]),
+                "frog_p": np.array([.256662516098, .610082591416, .062624387196])
+            }
+        }
 
+        for s in ('A', 'D', 'G', 'C'):
+            top_id, bottom_id = self.string_physical_endpoints[s]
+            if top_id is None or bottom_id is None:
+                print(f"Skipping target line calculation for {s} due to missing physical string endpoints.")
+                target_lines[s] = (None, None, None) # start, end, normalized_direction
+                continue
+
+            # 1. Get physical string line (simulation_string_line)
+            p_top = self.model.site(top_id).pos # Use model.site().pos for static XML positions
+            p_bottom = self.model.site(bottom_id).pos
+            
+            simulation_string_vec = p_top - p_bottom
+            norm_simulation_string_vec = np.linalg.norm(simulation_string_vec)
+            if norm_simulation_string_vec < 1e-6:
+                print(f"Warning: Physical string {s} has zero length. Cannot calculate perpendicular line.")
+                target_lines[s] = (None, None, None)
+                continue
+            normalized_simulation_string_vec = simulation_string_vec / norm_simulation_string_vec
+
+            # 2. Get initial measured bow stroke points
+            bow_measured_tip_pos = _bow_poses_data[s]["tip_p"]
+            bow_measured_frog_pos = _bow_poses_data[s]["frog_p"]
+
+            # Calculate midpoint and initial direction of measured bow stroke
+            bow_measured_midpoint = (bow_measured_tip_pos + bow_measured_frog_pos) / 2.0
+            bow_measured_direction_vec = bow_measured_tip_pos - bow_measured_frog_pos
+            bow_measured_length = np.linalg.norm(bow_measured_direction_vec)
+
+            if bow_measured_length < 1e-6:
+                print(f"Warning: Measured bow stroke for {s} has zero length. Cannot calculate perpendicular line.")
+                target_lines[s] = (None, None, None)
+                continue
+
+            # 3. Adjust to be perpendicular to simulation_string_line
+            # Project bow_measured_direction_vec onto the plane perpendicular to normalized_simulation_string_vec
+            # Component parallel to string:
+            parallel_component = np.dot(bow_measured_direction_vec, normalized_simulation_string_vec) * normalized_simulation_string_vec
+            
+            # Component perpendicular to string:
+            perpendicular_component = bow_measured_direction_vec - parallel_component
+            
+            norm_perpendicular_component = np.linalg.norm(perpendicular_component)
+
+            if norm_perpendicular_component < 1e-6:
+                # This means the measured bow stroke was already perfectly parallel to the string.
+                # In this rare case, we need to pick an arbitrary perpendicular direction.
+                if np.linalg.norm(np.cross(normalized_simulation_string_vec, np.array([0,0,1]))) > 1e-6:
+                    target_bow_stroke_direction_normalized = np.cross(normalized_simulation_string_vec, np.array([0,0,1]))
+                elif np.linalg.norm(np.cross(normalized_simulation_string_vec, np.array([0,1,0]))) > 1e-6:
+                    target_bow_stroke_direction_normalized = np.cross(normalized_simulation_string_vec, np.array([0,1,0]))
+                else: # Fallback, highly unlikely
+                    target_bow_stroke_direction_normalized = np.cross(normalized_simulation_string_vec, np.array([1,0,0]))
+                target_bow_stroke_direction_normalized /= np.linalg.norm(target_bow_stroke_direction_normalized)
+            else:
+                target_bow_stroke_direction_normalized = perpendicular_component / norm_perpendicular_component
+
+            # Scale to original measured length
+            target_bow_stroke_vector = target_bow_stroke_direction_normalized * bow_measured_length
+
+            # 4. Define target line for the given string
+            target_bow_stroke_start = bow_measured_midpoint - target_bow_stroke_vector / 2.0
+            target_bow_stroke_end = bow_measured_midpoint + target_bow_stroke_vector / 2.0
+
+            target_lines[s] = (target_bow_stroke_start, target_bow_stroke_end, target_bow_stroke_direction_normalized)
+            print(f"Calculated target bowing line for {s}: Start={target_bow_stroke_start}, End={target_bow_stroke_end}, Dir={target_bow_stroke_direction_normalized}")
+
+        return target_lines
+    
     def reset(self):
         # reset qpos/qvel
         if self.start_positions is not None:
@@ -287,7 +442,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         mujoco.mj_forward(self.model, self.data)
         # reset trackers
         self.current_time = 0.0
-        self.current_midi_note_idx = 0 # Reset MIDI note index here
+        self.current_midi_note_idx = 0 
         self.total_pid_error = np.zeros(6)
         self.prev_torque = np.zeros(6)
         return self._get_obs()
@@ -476,6 +631,9 @@ class UR5eCelloTrajectoryEnv(gym.Env):
     def _get_tcp_pos(self):
         # Use the tcp_site_id initialized in __init__
         return self.data.site_xpos[self.tcp_site_id]
+    def _get_tcp_xmat(self):
+        """Returns the current rotation matrix of the TCP site."""
+        return self.data.site_xmat[self.tcp_site_id].reshape(3,3)
 
     def _get_obs(self):
         qpos = self.data.qpos[:6].copy()
@@ -570,49 +728,61 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         info['residual_penalty_term'] = self.residual_penalty * residual_magnitude
         info['residual_magnitude'] = residual_magnitude
 
-
-        # --- 2. Existing Bow String Position Error ---
-        # (Adapted from your original _compute_reward)
-        # Ensure self.note_sequence and current_idx are properly managed/updated in step() or reset()
-        # You'll need to update self.current_idx in your step() method to track musical progression.
-        # This might involve finding the current note based on `self.data.time`.
-        if not self.note_sequence: # Handle case where note_sequence might be empty
-            dist = 0.0
-            info['bow_string_dist'] = 0.0
+        # --- Get current note info and TCP data ---
+        idx = self.current_midi_note_idx
+        string_crossing = False
+        if not self.note_sequence or idx >= len(self.note_sequence): # Handle end of sequence
+            target_str_key = 'None'
+            # current_note_info = {'note_number': 0, 'string': 'None'} # Not strictly needed if bowing/pressure removed
         else:
-            # You might need a more robust way to get `self.current_idx` if it's not time-synced.
-            # E.g., self.current_idx = self._get_current_note_idx_from_time()
-            idx = self.current_midi_note_idx # Use the tracked MIDI note index
-            
-            tcp = self._get_tcp_pos() # Ensure _get_tcp_pos() is defined and returns 3D numpy array
-            raw_s = self.note_sequence[idx].get('string', '')
-
+            current_note_info = self.note_sequence[idx]
+            raw_s = current_note_info.get('string', '')
             if '-' in raw_s:
-                target_str = raw_s.split('-')[1]
-            else:
-                target_str = raw_s
+                string_crossing = True
+            target_str_key = raw_s.split('-')[1] if '-' in raw_s else raw_s # e.g., 'A', 'D', 'G', 'C'
 
-            fid, tid = self.string_sites.get(target_str, (None, None))
-            if fid is None or tid is None:
-                dist = 0.0
-            else:
-                p1 = self.data.site_xpos[fid]
-                p2 = self.data.site_xpos[tid]
-                line_vec = p2 - p1
-                norm = np.linalg.norm(line_vec)
-                if norm > 1e-6:
-                    dist = np.linalg.norm(np.cross(tcp - p1, tcp - p2)) / norm
+        # Get TCP position and orientation
+        tcp_pos = self._get_tcp_pos()
+        tcp_xmat = self._get_tcp_xmat()
+
+        # Bow string position error
+         # --- Positional Alignment & Perpendicularity ---
+        if not string_crossing:
+            region_start_point, region_end_point, normalized_string_vec = self.target_bow_line_segments.get(target_str_key, (None, None, None))
+
+            if region_start_point is not None and region_end_point is not None:
+                # Calculate distance from TCP_pos to the TARGET BOWING REGION LINE SEGMENT
+                line_segment_vec = region_end_point - region_start_point
+                line_segment_length_sq = np.dot(line_segment_vec, line_segment_vec)
+
+                dist_to_bowing_region = 0.0
+                if line_segment_length_sq > 1e-9:
+                    t = np.dot(tcp_pos - region_start_point, line_segment_vec) / line_segment_length_sq
+                    t = np.clip(t, 0.0, 1.0)
+                    closest_point_on_segment = region_start_point + t * line_segment_vec
+                    dist_to_bowing_region = np.linalg.norm(tcp_pos - closest_point_on_segment)
                 else:
-                    dist = 0.0
-            info['bow_string_dist'] = dist
-            r -= dist 
+                    dist_to_bowing_region = np.linalg.norm(tcp_pos - region_start_point)
 
-        collision, _, _ = contact.detect_collision(self.model, self.data)
-        if collision:
-            r -= self.contact_penalty
-            info['contact_penalty_applied'] = True
+                # Bonus for being on line, penalty for being off
+                reward_pos = self.on_line_bonus - self.dist_penalty_coeff * dist_to_bowing_region
+                r += reward_pos
+                info['dist_to_bowing_region'] = dist_to_bowing_region
+                info['reward_positional'] = reward_pos
+            else: # If no target line defined for the current string
+                info['dist_to_bowing_region'] = 0.0
+                info['reward_positional'] = 0.0
+                info['bow_string_perpendicularity_penalty'] = 0.0
+                info['dot_product_bow_string_perp'] = 0.0
         else:
-            info['contact_penalty_applied'] = False
+            # want to avoid colliding with strings during string crossing
+            collision, _, _ = contact.detect_collision(self.model, self.data)
+            if collision:
+                r -= self.contact_penalty
+                info['contact_penalty_applied'] = True
+            else:
+                info['contact_penalty_applied'] = False
+            
 
         # --- 4. Torque Change Penalty ---
         # (From your original _compute_reward)
@@ -626,32 +796,7 @@ class UR5eCelloTrajectoryEnv(gym.Env):
         info['torque_penalty_term'] = self.torque_penalty * torque_change_magnitude
         info['torque_change_magnitude'] = torque_change_magnitude
 
-        # --- 5. Bow-String Alignment Penalty ---
-        # (From your original _compute_reward)
-        if fid is not None and tid is not None:
-            p1 = self.data.site_xpos[fid]
-            p2 = self.data.site_xpos[tid]
-            string_vec = p2 - p1
-            norm_string_vec = np.linalg.norm(string_vec)
-            if norm_string_vec > 1e-8:
-                string_vec /= norm_string_vec
-            else:
-                string_vec[:] = 1.0  # fallback default unit vector
-
-            tcp_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, 'ee_link')
-            bow_vec = self.data.xmat[tcp_id].reshape((3, 3))[:, 0] # Assuming x-axis of TCP frame is bow direction
-            norm_bow_vec = np.linalg.norm(bow_vec)
-            if norm_bow_vec > 1e-8:
-                 bow_vec /= norm_bow_vec
-            else:
-                 bow_vec[:] = 1.0 # fallback default unit vector
-
-            dot = np.clip(np.dot(bow_vec, string_vec), -1.0, 1.0)
-            angle_error = np.abs(np.pi / 2 - np.arccos(dot)) # Ideal angle is 90 degrees (pi/2 radians)
-            r -= 0.5 * angle_error # Penalize deviation from 90 degrees
-            info['alignment_angle_error'] = angle_error
-        else:
-            info['alignment_angle_error'] = 0.0 # No penalty if no target string
+        
 
         return r, info
     def _check_done(self):
