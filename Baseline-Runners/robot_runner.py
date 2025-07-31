@@ -1,10 +1,3 @@
-import sys
-import os
-# Function to load environment variables from our Env Manager module
-sys.path.append(os.path.abspath(os.path.join(
-    os.path.dirname(__file__), '..', 'RL-code')))
-from rl_env_manager import load_rl_env_from_dot_env
-
 import time
 import pandas as pd
 import socket
@@ -156,16 +149,14 @@ def get_function_sequence(note_sequence):
     return res
 
 
-# Load environment variables
-env_vars = load_rl_env_from_dot_env()
 
 # load_scripts()
-note_sequence = parse_midi(env_vars.get("NOTE_SEQ_MIDI_PATH"))
+note_sequence = parse_midi("/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid")
 print(note_sequence)
 function_sequence = get_function_sequence(note_sequence)
 # print(function_sequence)
 
-f = open(env_vars.get("SONG_SCRIPT_PATH"), "r")
+f = open("/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song.script", "r")
 script = f.read()
 
 starting_pose = f'{note_sequence[0]["string"].lower()}_bow_poses.frog_p'

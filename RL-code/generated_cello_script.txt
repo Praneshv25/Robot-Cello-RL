@@ -1,0 +1,446 @@
+def song():
+  global _hidden_verificationVariable=0
+  set_tcp(p[0.028210348281514253,-0.09610723587300697,-0.09969041498611403,0.0,0.0,0.0])
+  set_standard_analog_input_domain(0, 1)
+  set_standard_analog_input_domain(1, 1)
+  set_tool_analog_input_domain(0, 1)
+  set_tool_analog_input_domain(1, 1)
+  set_analog_outputdomain(0, 0)
+  set_analog_outputdomain(1, 0)
+  set_input_actions_to_default()
+  set_tool_communication(False, 115200, 0, 1, 1.5, 3.5)
+  set_tool_output_mode(0)
+  set_tool_digital_output_mode(0, 1)
+  set_tool_digital_output_mode(1, 1)
+  set_tool_voltage(0)
+  set_target_payload(0.260000, [0.050000, -0.008000, 0.024000], [0.000163, 0.000163, 0.000163, 0.000000, 0.000000, 0.000000])
+  set_safety_mode_transition_hardness(1)
+  set_gravity([0.0, 0.0, 9.82])
+  global Plane_1=p[0.32571614183608727,0.7933870146316717,0.11820742021636722,-2.208244884171713,-0.24738609815952348,-1.9195085473101943]
+  global Plane_2=p[0.3436052139151623,0.7478032414335104,0.10077839665899768,2.768545736097797,0.1284831553507919,1.3672805628273381]
+  global Plane_3=p[0.31945151854627996,0.6757990361168175,0.09459088830114093,2.7301760593116526,-0.049483824131046385,1.4252239353300047]
+  global Plane_4=p[0.3372257363094211,0.6222230974198586,0.07001667903587716,2.621672423508307,-0.12240385890263918,1.4373011913128484]
+  # begin: URCap Installation Node
+  #   Source: External Control, 1.0.5, FZI Research Center for Information Technology
+  #   Type: External Control
+  # end: URCap Installation Node
+  # begin: URCap Installation Node
+  #   Source: External Control, 1.0.5, FZI Research Center for Information Technology
+  #   Type: External Control
+  # end: URCap Installation Node
+  popup("Started song()")
+  global _event_flag = 0
+
+  global a_bow_poses = struct(
+    tip_p=[.434228571425, .379036635826, .270037302812, -1.543999992769, -2.355000000559, 1.347000003373], 
+    frog_p=[.300710000014, .793569999983, .099710000017, -1.544000000893, -2.354999999336, 1.346999999882]
+  )
+
+  global d_bow_poses = struct(
+    tip_p=[..390527951914, .250624711074, .085303140109, -1.300458031573, -1.807278747083, 1.083030401163],
+    frog_p=[.387845836117, .702738171432, .082191176809, -1.300458031986, -1.807278747687, 1.083030400613]
+  )
+
+  global g_bow_poses = struct(
+    tip_p=[.235454907564, .227041182568, .058654929533, -1.613292236378, -1.724990757347, .780935321780], 
+    frog_p=[.328691291441, .642471039723, .090408804986, -1.613292235820, -1.724990757094, .780935322133]
+  )
+
+  global c_bow_poses = struct(
+    tip_p=[.155115285051, .293828929686, .011744083578, -1.647252089555, -1.473111089555, .599741687736],
+    frog_p=[.299975238361, .589243545784, .078347625249, -1.647252090486, -1.473111089874, .599741687349]
+  )
+
+  def ease_scale(note_dur):
+    if note_dur > 3:
+        note_dur = 3
+    end
+
+    return (1.0 - cos(3.14159265359 * note_dur / 3.0)) / 2.0
+  end
+
+  
+  
+  def bow(bow_dir, note_dur, bow_poses):
+    if note_dur > 3:
+      note_dur = 3
+    end
+
+    local dist_scale = ease_scale(note_dur)
+
+    local tip_p=bow_poses.tip_p
+    local frog_p=bow_poses.frog_p
+    
+    local tcp_pose = get_actual_tcp_pose()
+    local start_p = [tcp_pose[0], tcp_pose[1], tcp_pose[2], tcp_pose[3], tcp_pose[4], tcp_pose[5]]
+    local end_p = frog_p
+
+    local direction_vector = (tip_p - frog_p) / norm(tip_p - frog_p)
+    local t_dir = -1
+    # r = r0 + vt positive t when true
+
+    local target_dist = dist_scale * norm(tip_p - frog_p)
+
+    if bow_dir:
+      end_p = tip_p
+      t_dir = 1
+    end
+
+    global ending_spot = end_p
+    if (norm(end_p - start_p) >= target_dist):
+      end_p = start_p + t_dir * direction_vector * target_dist
+      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
+      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur)
+      sync()
+    elif norm(end_p - start_p) - target_dist  >= -0.025:
+      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
+      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur)
+      sync()
+    else:
+      local d1 = norm(end_p - start_p)
+      local d2 = target_dist - norm(end_p - start_p)
+      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
+      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur * d1 / target_dist)
+      sync()
+      end_p = end_p + -1 * t_dir * direction_vector * d2
+      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
+      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur * d2 / target_dist)
+      sync()
+    end
+  end
+
+  def stay():
+    stopj(2.5)
+    sleep(0.025)
+  end
+
+  def a_bow(bow_dir, note_dur):
+    _event_flag = 1  # START a_bow
+    write_output_integer_register(0, _event_flag)
+    write_output_integer_register(1, bow_dir)
+    bow(bow_dir, note_dur, a_bow_poses)
+    _event_flag = 2  # END a_bow
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def d_bow(bow_dir, note_dur):
+    _event_flag = 3  # START d_bow
+    write_output_integer_register(1, bow_dir)
+    write_output_integer_register(0, _event_flag)
+    bow(bow_dir, note_dur, d_bow_poses)
+    _event_flag = 4  # END d_bow
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def g_bow(bow_dir, note_dur):
+    _event_flag = 5  # START g_bow
+    write_output_integer_register(1, bow_dir)
+    write_output_integer_register(0, _event_flag)
+    bow(bow_dir, note_dur, g_bow_poses)
+    _event_flag = 6  # END g_bow
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def c_bow(bow_dir, note_dur):
+    _event_flag = 7  # START c_bow
+    write_output_integer_register(1, bow_dir)
+    write_output_integer_register(0, _event_flag)
+    bow(bow_dir, note_dur, c_bow_poses)
+    _event_flag = 8  # END c_bow
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def round(n):
+    local int_part = floor(n)
+    if (n - int_part) >= 0.5:
+        return int_part + 1
+    else:
+        return int_part
+    end
+  end
+
+  def min(a, b):
+    if a < b:
+      return a
+    else:
+      return b
+    end
+  end
+
+  def max(a, b):
+    if a > b:
+      return a
+    else:
+      return b
+    end
+  end
+
+  def string_crossing(start_bow_poses, end_bow_poses, next_dir):
+    # we first find the curr position
+    local tcp_pose = get_actual_tcp_pose()
+    local start_p = [tcp_pose[0], tcp_pose[1], tcp_pose[2], tcp_pose[3], tcp_pose[4], tcp_pose[5]]
+
+    local bow_len = norm(end_bow_poses.tip_p - end_bow_poses.frog_p)
+    local direction_vector = (end_bow_poses.tip_p - end_bow_poses.frog_p) / bow_len
+
+    local dist_from_tip = norm(end_bow_poses.tip_p - end_bow_poses.frog_p) * norm(start_p - start_bow_poses.frog_p) / norm(start_bow_poses.tip_p - start_bow_poses.frog_p)
+
+    # from current position, we first move out in the x and z directions so we dont crash the bow
+    # lets just do this a fixed amount every time, providing a "safe" clearance
+    local out = [0.6, 0.0, 0.5, 0, 0, 0]
+    local step1 = start_p + out
+    # after adjustments on teach pendant, rotations are constant throughout a given bowing
+    local step2 = [step1[0], step1[1], step1[2], end_bow_poses.frog_p[3], end_bow_poses.frog_p[4], end_bow_poses.frog_p[5]]
+    # lastly, we adjust the x, y, z positions to fit a point along the line from frog to tip for the ending string
+    # that is closest to the starting position 
+    local target_pose = end_bow_poses.frog_p + direction_vector *  dist_from_tip
+    
+    movel(p[step1[0], step1[1], step1[2], step1[3], step1[4], step1[5]])
+    movep(p[step2[0], step2[1], step2[2], step2[3], step2[4], step2[5]])
+    sync()
+    movep(p[target_pose[0], target_pose[1], target_pose[2], target_pose[3], target_pose[4], target_pose[5]])
+    # sync()
+  end
+
+
+
+  def a_to_d(next_dir=0):
+    _event_flag = 101
+    write_output_integer_register(0, _event_flag)
+    string_crossing(a_bow_poses, d_bow_poses, next_dir)
+    _event_flag = 102
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def a_to_g(next_dir=0):
+    _event_flag = 109
+    write_output_integer_register(0, _event_flag)
+    string_crossing(a_bow_poses, g_bow_poses, next_dir)
+    _event_flag = 110
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def d_to_a(next_dir=0):
+    _event_flag = 103
+    write_output_integer_register(0, _event_flag)
+    string_crossing(d_bow_poses, a_bow_poses, next_dir)
+    _event_flag = 104
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def d_to_g(next_dir=0):
+    _event_flag = 105
+    write_output_integer_register(0, _event_flag)
+    string_crossing(d_bow_poses, g_bow_poses, next_dir)
+    _event_flag = 106
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def d_to_c(next_dir=0):
+    _event_flag = 113
+    write_output_integer_register(0, _event_flag)
+    string_crossing(d_bow_poses, c_bow_poses, next_dir)
+    _event_flag = 114
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def g_to_a(next_dir=0):
+    _event_flag = 111
+    write_output_integer_register(0, _event_flag)
+    string_crossing(g_bow_poses, a_bow_poses, next_dir)
+    _event_flag = 112
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def g_to_d(next_dir=0):
+    _event_flag = 107
+    write_output_integer_register(0, _event_flag)
+    string_crossing(g_bow_poses, d_bow_poses, next_dir)
+    _event_flag = 108
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def g_to_c(next_dir=0):
+    _event_flag = 117
+    write_output_integer_register(0, _event_flag)
+    string_crossing(g_bow_poses, c_bow_poses, next_dir)
+    _event_flag = 118
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def c_to_d(next_dir=0):
+    _event_flag = 115
+    write_output_integer_register(0, _event_flag)
+    string_crossing(c_bow_poses, d_bow_poses, next_dir)
+    _event_flag = 116
+    write_output_integer_register(0, _event_flag)
+  end
+
+  def c_to_g(next_dir=0):
+    _event_flag = 119
+    write_output_integer_register(0, _event_flag)
+    string_crossing(c_bow_poses, g_bow_poses, next_dir)
+    _event_flag = 120
+    write_output_integer_register(0, _event_flag)
+  end
+
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.9990)
+  stay()
+  d_to_a()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.9990)
+  stay()
+  d_to_a()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_to_a()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_to_a()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.9990)
+  stay()
+  d_to_a()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.2490)
+  stay()
+  a_bow(1, 0.2490)
+  stay()
+  a_bow(0, 0.4990)
+  stay()
+  a_bow(1, 0.4990)
+  stay()
+  a_to_d()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.4990)
+  stay()
+  d_bow(1, 0.4990)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.2490)
+  stay()
+  d_bow(1, 0.2490)
+  stay()
+  d_bow(0, 0.9990)
+  stay()
+  
+  
+end
+
+song()

@@ -5,84 +5,55 @@ import mido
 from mido import MidiFile, tempo2bpm, bpm2tempo
 import sys
 import numpy as np
-import rtde.rtde as rtde
-import rtde.rtde_config as rtde_config
-import logging # Added for example_control_loop's logging setup
+#sys.path.append('/home/skamanski/Downloads/rtde-2.7.2-release/rtde-2.7.2') # Adjust this path if needed
+#import rtde.rtde as rtde
+#import rtde.rtde_config as rtde_config
 
-# ================================
-# Configuration (Keep existing, add DASHBOARD_PORT)
-# ================================
-ROBOT_IP = "192.168.0.119"
-#ROBOT_IP = "10.165.11.242"
-ROBOT_PORT = 30004  # RTDE Port
-UR_PRIMARY_PORT = 30002 # Primary Interface Port for URScript
-DASHBOARD_PORT = 29999 # Dashboard Server Port
+BOW_POSES = {
+    "A": {"tip": np.array([.473129539189, .413197423330, .256308427905, -1.460522581833, -2.310115543652, 1.445803824327]),
+           "frog": np.array([.300717266074, .793568239540, .099710283103, -1.543522183454, -2.354885618328, 1.346770272474])},
+    "D": {"tip": np.array([.340413993945, .280157415162, .176342071758, -1.614553612482, -2.044810993523, 1.042279199535]),
+           "frog": np.array([.302785064368, .749849181019, .117254426008, -1.664082298752, -2.084265434693, 1.037965163360])},
+    "G": {"tip": np.array([.162016291992, .201320984957, .059414774157, -1.929772636560, -1.931323067217, .555055912517]),
+           "frog": np.array([.281203376642, .681662588607, .104672526365, -1.812194031755, -1.940153681829, .493747597283])},
+    "C": {"tip": np.array([.079815569355, .285182178102, -.086654726588, -1.819646014269, -1.658258006768, .180930717120]),
+           "frog": np.array([.256662516098, .610082591416, .062624387196, -1.743236422252, -1.524514092756, .163823228357])}
+}
 
-CLEF = "bass"
-# Update these paths to your actual file locations
-CONFIG_FILENAME = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/RL-code/RTDE_Python_Client_Library/examples/cello_config.xml"
-MIDI_FILE_PATH = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid"
-BOWING_FILE = "None"
-SONG_SCRIPT_TEMPLATE = "/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song3.script"
-OUTPUT_LOG_FILENAME = "allegro-bowings-sim.csv"
-DEFAULT_TEMPO_BPM = 120
+# --- Configuration ---
+ROBOT_IP = "128.46.75.202"
+UR_PORT = 30001
+RTDE_PORT = 30004
+CLEF = "bass" # "bass" or "tenor"
+# this only works on my old mac or on the desktop in the lab
+#CONFIG_FILENAME = "/home/skamanski/Downloads/rtde-2.7.2-release/rtde-2.7.2/examples/cello_configuration.xml" # Adjust path
+CONFIG_FILENAME = "/Users/parktheo0/Downloads/rtde-2.7.2-release/rtde-2.7.2/examples/cello_configuration.xml" # Adjust path
+#MIDI_FILE_PATH = "/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/minuet_no_2v2.mid" # Adjust path
+MIDI_FILE_PATH = "/Users/parktheo0/Developer/robot-cello-venv/Robot-Cello-ResidualRL/MIDI-Files/minuet_no_2v2-open.mid" # Adjust path
+BOWING_FILE = "None" # Or path to your bowing file
+#SONG_SCRIPT_TEMPLATE = "/Users/skamanski/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song.script" # Adjust path
+SONG_SCRIPT_TEMPLATE = "/Users/parktheo0/Developer/robot-cello-venv/Robot-Cello-ResidualRL/URScripts/song.script" # Adjust path
+OUTPUT_LOG_FILENAME = "minuet-log-detailed-test.csv"
+DEFAULT_TEMPO_BPM = 120 # Used if no tempo message is found in MIDI
 
-# ================================
-# Dashboard Helpers (Copied from example_control_loop.py)
-# ================================
-def dashboard_command(cmd):
-    try:
-        with socket.create_connection((ROBOT_IP, DASHBOARD_PORT), timeout=2) as dash:
-            dash.sendall((cmd + "\n").encode())
-            resp = dash.recv(1024).decode().strip()
-            print(f"📟 Dashboard: {resp}")
-            return resp
-    except Exception as e:
-        print(f"⚠️ Dashboard command failed: {e}")
-        return None
+# --- RTDE Connection Setup (doens't work with apple silicon chip) ---
+# try:
+#     #conf = rtde_config.ConfigFile(CONFIG_FILENAME)
+#     # Specify the recipe name from your XML file that contains the desired outputs
+#     # Make sure your XML recipe includes: "timestamp", "output_int_register_0", "actual_TCP_pose", "actual_q", "actual_TCP_force"
+#     output_names, output_types = conf.get_recipe("state") # Adjust recipe name if needed
 
-def dashboard_play_with_wait():
-    resp = dashboard_command("play")
-    if resp and "Failed" in resp:
-        print("⏳ Waiting for program to be ready...")
-        for _ in range(10):
-            state = dashboard_command("programState")
-            if state and "READY" in state:
-                dashboard_command("play")
-                return
-            time.sleep(0.5)
-        print("▶️ Program started.")
-    else:
-        print("▶️ Program started (or already running).")
+#     con = rtde.RTDE(ROBOT_IP, RTDE_PORT)
+# except FileNotFoundError:
+#     print(f"❌ Error: RTDE Configuration file not found at {CONFIG_FILENAME}")
+#     sys.exit(1)
+# except KeyError as e:
+#     print(f"❌ Error: Recipe 'state' (or your chosen name) not found or missing fields in {CONFIG_FILENAME}. Details: {e}")
+#     sys.exit(1)
+# except Exception as e:
+#     print(f"❌ Error setting up RTDE configuration: {e}")
+#     sys.exit(1)
 
-
-# ================================
-# Setup Logging (Copied from example_control_loop.py)
-# ================================
-logging.getLogger().setLevel(logging.INFO)
-
-# ================================
-# RTDE Connection Setup (Modified to align with example_control_loop.py)
-# ================================
-con = None # Initialize con to None
-try:
-    conf = rtde_config.ConfigFile(CONFIG_FILENAME)
-    # Ensure recipe names match your XML. Assuming "state", "setp", "watchdog" from example_control_loop.py
-    state_names, state_types = conf.get_recipe("state")
-    setp_names, setp_types = conf.get_recipe("setp") # Added
-    watchdog_names, watchdog_types = conf.get_recipe("watchdog") # Added
-
-    con = rtde.RTDE(ROBOT_IP, ROBOT_PORT)
-
-except FileNotFoundError:
-    print(f"❌ Error: RTDE Configuration file not found at {CONFIG_FILENAME}")
-    sys.exit(1)
-except KeyError as e:
-    print(f"❌ Error: Required recipe ('state', 'setp', or 'watchdog') not found or missing fields in {CONFIG_FILENAME}. Details: {e}")
-    sys.exit(1)
-except Exception as e:
-    print(f"❌ Error setting up RTDE configuration: {e}")
-    sys.exit(1)
 
 # --- Data Log ---
 data_log = []
