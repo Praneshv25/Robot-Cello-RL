@@ -5,7 +5,7 @@ import mido
 from mido import MidiFile
 
 # If robot doesn't connect, you may need to re-check the port by going to Settings -> Network on the teach pendant
-ROBOT_IP = "128.46.75.219"
+ROBOT_IP = "10.165.11.242"
 UR_PORT = 30002  # URScript Port
 RTDE_PORT = 30004  # RTDE Port
 
@@ -114,7 +114,7 @@ def send_urscript(urscript, speed_scaling):
         speed_command = f"set speed {speed_scaling}\n"
         urscript = speed_command + urscript
         
-        with socket.create_connection((ROBOT_IP, UR_PORT), timeout=10) as sock:
+        with socket.create_connection((ROBOT_IP, UR_PORT), timeout=5) as sock:
             sock.sendall(urscript.encode('utf-8'))
             print("Sent URScript")
             
@@ -145,18 +145,18 @@ def get_function_sequence(note_sequence):
             bow_direction = not bow_direction
 
             # bow_direction = not bow_direction
-            res += function + f"({bow_direction}, {note_duration})\n  stay()\n  "
+            res += function + f"({1 if bow_direction else 0}, {note_duration})\n  stay()\n  "
     return res
 
 
 
 # load_scripts()
-note_sequence = parse_midi("/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/MIDI-Files/allegro.mid")
+note_sequence = parse_midi("../MIDI-Files/twinkle_twinkle-open.mid")
 print(note_sequence)
 function_sequence = get_function_sequence(note_sequence)
 # print(function_sequence)
 
-f = open("/Users/samanthasudhoff/Documents/GitHub/Robot-Cello-ResidualRL/URScripts/song.script", "r")
+f = open("../URScripts/song.script", "r")
 script = f.read()
 
 starting_pose = f'{note_sequence[0]["string"].lower()}_bow_poses.frog_p'
@@ -169,7 +169,7 @@ print(script)
 test_file = open('test.txt', "w")
 test_file.write(script)
 
-# send_urscript(script, 0.8)
+send_urscript(script, 0.8)
 
 # load scripts before playing the note sequence
 # load_scripts()
