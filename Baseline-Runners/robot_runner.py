@@ -6,6 +6,7 @@ from mido import MidiFile
 
 # If robot doesn't connect, you may need to re-check the port by going to Settings -> Network on the teach pendant
 ROBOT_IP = "10.165.11.242"
+ROBOT_IP = "10.165.11.242"
 UR_PORT = 30002  # URScript Port
 RTDE_PORT = 30004  # RTDE Port
 
@@ -146,6 +147,7 @@ def get_function_sequence(note_sequence):
 
             # bow_direction = not bow_direction
             res += function + f"({1 if bow_direction else 0}, {note_duration})\n  stay()\n  "
+            res += function + f"({1 if bow_direction else 0}, {note_duration})\n  stay()\n  "
     return res
 
 
@@ -169,6 +171,7 @@ print(script)
 test_file = open('test.txt', "w")
 test_file.write(script)
 
+send_urscript(script, 0.8)
 send_urscript(script, 0.8)
 
 # load scripts before playing the note sequence
