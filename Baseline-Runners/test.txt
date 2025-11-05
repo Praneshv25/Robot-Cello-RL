@@ -272,7 +272,6 @@ def song():
       # apply dz relative to TCP
       local base_pose_for_target = p[interp[0], interp[1], interp[2], interp[3], interp[4], interp[5]]
       local target_pose = pose_trans(base_pose_for_target, p[0,0,dz_scaled,0,0,0])
-      textmsg("gravy")
 
       # small orientation correction from torque
       local rot = orientation_correction(T_tcp, Fz)
@@ -280,10 +279,10 @@ def song():
         target_pose = pose_trans(target_pose, p[0,0,0, rot[0], rot[1], rot[2]])
       end
 
-      textmsg("oil")
 
       # command the small step using servoj for smoothness
-      servoj(target_pose, servoj_acc, servoj_vel, control_period, 0.05, 300)
+      local target_q = get_inverse_kin(target_pose)
+      servoj(target_q, servoj_acc, servoj_vel, control_period, 0.05, 300)
       textmsg("rum")
       sync()
       i = i + 1

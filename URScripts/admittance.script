@@ -281,7 +281,8 @@ def song():
 
 
       # command the small step using servoj for smoothness
-      servoj(target_pose, servoj_acc, servoj_vel, control_period, 0.05, 300)
+      local target_q = get_inverse_kin(target_pose)
+      servoj(target_q, servoj_acc, servoj_vel, control_period, 0.05, 300)
       textmsg("rum")
       sync()
       i = i + 1
