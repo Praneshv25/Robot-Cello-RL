@@ -28,7 +28,7 @@ def song():
   #   Source: External Control, 1.0.5, FZI Research Center for Information Technology
   #   Type: External Control
   # end: URCap Installation Node
-  popup("Started song()")
+  popup("Started song() - DEBUG MODE: Admittance disabled")
   global _event_flag = 0
 
   global a_bow_poses = struct(
@@ -53,7 +53,7 @@ def song():
 
   # ---- Force-control & lever-arm parameters (tune these) ----
   global r_tool = [0.0, 0.6096, 0.0]    # [x,y,z] in meters (tool frame). Set this from frog TCP -> contact point measurement.
-  global target_force = 0.5           # desired normal force at contact (N) — tune
+  global target_force = 3.0           # desired normal force at contact (N) — tune
   global admittance_gain = 0.002      # dz = gain * (target - measured); start small
   global max_offset = 0.01            # max Z correction per step (m)
   global control_period = 0.02        # seconds per control step
@@ -61,6 +61,9 @@ def song():
   global servoj_vel = 0.2
   global fuse_alpha = 0.8             # weight for linear Fz projection vs torque-derived estimate
   global orient_comp_gain = 0.0008    # small orientation correction gain (rad per Nm)
+  
+  # *** DEBUG MODE FLAG ***
+  global DEBUG_MODE = True  # Set to False to re-enable admittance control
   # ----------------------------------------------------------
 
   def ease_scale(note_dur):
@@ -105,7 +108,12 @@ def song():
 
   # ---------- measure & fuse Fz estimate ----------
   def measure_fused_Fz_and_torque():
-    # returns a list: [Fz_fused (N), [Tx, Ty, Tz] (Nm)]
+    # *** DEBUG MODE: Return simulated correct force ***
+    if DEBUG_MODE:
+      return [target_force, 0.0, 0.0, 0.0]  # [Fz, Tx, Ty, Tz]
+    end
+    
+    # Original implementation
     local wrench = get_tcp_force()   # [Fx,Fy,Fz, Tx,Ty,Tz] in base frame
     local F_tcp = [wrench[0], wrench[1], wrench[2]]
     local T_tcp = [wrench[3], wrench[4], wrench[5]]
@@ -133,7 +141,12 @@ def song():
   # ----------------------------------------------------
 
     # ---------- orientation correction (small) ----------
-    def orientation_correction(T_tcp_param, Fz_fused_param):
+    def orientation_correction(Tx, Ty, Tz, Fz_fused_param):
+    # *** DEBUG MODE: Return zero correction ***
+    if DEBUG_MODE:
+      return [0.0, 0.0, 0.0]
+    end
+    
     # return small rotation [rx, ry, 0] in radians to reduce Tx, Ty
     local rx = 0.0
     local ry = 0.0
@@ -147,8 +160,8 @@ def song():
 
     if absFz > 0.2:
         # simple proportional: torque about X -> rotate around Y, torque about Y -> rotate around X
-        rx = -orient_comp_gain * T_tcp_param[1] / (absFz + 1e-6)
-        ry = orient_comp_gain * T_tcp_param[0] / (absFz + 1e-6)
+        rx = -orient_comp_gain * Ty / (absFz + 1e-6)
+        ry = orient_comp_gain * Tx / (absFz + 1e-6)
 
         # clamp small rotation magnitudes to safe range
         if rx > 0.05:
@@ -225,48 +238,58 @@ def song():
       # desired interpolated pose in base frame
       local interp = start_p + step_vec * i
 
-      # measure fused Fz and torque
-      local res2 = measure_fused_Fz_and_torque()
-      local Fz = res2[0]
-      local T_tcp = [res2[1], res2[2], res2[3]]
+      # *** DEBUG MODE: Skip force measurement and use zero corrections ***
+      local dz_scaled = 0.0
+      local rot = [0.0, 0.0, 0.0]
+      
+      if not DEBUG_MODE:
+        # measure fused Fz and torque
+        local res2 = measure_fused_Fz_and_torque()
+        local Fz = res2[0]
+        local Tx = res2[1]
+        local Ty = res2[2]
+        local Tz = res2[3]
 
-      # compute dz correction (admittance)
-      local error = target_force - Fz
-      local dz = admittance_gain * error
+        # compute dz correction (admittance)
+        local error = target_force - Fz
+        local dz = admittance_gain * error
 
-      # clamp dz
-      if dz > max_offset:
-        dz = max_offset
-      elif dz < -max_offset:
-        dz = -max_offset
+        # clamp dz
+        if dz > max_offset:
+          dz = max_offset
+        elif dz < -max_offset:
+          dz = -max_offset
+        end
+
+        # optionally scale dz by lever-position along bow: compute fraction along bow axis (0..1)
+        local A = frog_p
+        local bow_vec = tip_p - frog_p
+        local frac = 0.0
+        local denom = dot(bow_vec, bow_vec)
+        if denom > 1e-8:
+          frac = dot(interp - A, bow_vec) / denom
+        end
+        # clamp frac 0..1
+        if frac < 0.0:
+          frac = 0.0
+        elif frac > 1.0:
+          frac = 1.0
+        end
+
+        # lever scaling: when closer to tip (frac near 1), larger lever -> scale correction down
+        local lever_scale = 1.0 - 0.5 * frac   # tune this mapping if desired
+
+        dz_scaled = dz * lever_scale
+
+        # small orientation correction from torque
+        rot = orientation_correction(Tx, Ty, Tz, Fz)
       end
 
-      # optionally scale dz by lever-position along bow: compute fraction along bow axis (0..1)
-      local A = frog_p
-      local bow_vec = tip_p - frog_p
-      local frac = 0.0
-      local denom = dot(bow_vec, bow_vec)
-      if denom > 1e-8:
-        frac = dot(interp - A, bow_vec) / denom
-      end
-      # clamp frac 0..1
-      if frac < 0.0:
-        frac = 0.0
-      elif frac > 1.0:
-        frac = 1.0
-      end
-
-      # lever scaling: when closer to tip (frac near 1), larger lever -> scale correction down
-      local lever_scale = 1.0 - 0.5 * frac   # tune this mapping if desired
-
-      local dz_scaled = dz * lever_scale
-
-      # apply dz relative to TCP
+      # apply dz relative to TCP (will be 0 in DEBUG_MODE)
       local base_pose_for_target = p[interp[0], interp[1], interp[2], interp[3], interp[4], interp[5]]
       local target_pose = pose_trans(base_pose_for_target, p[0,0,dz_scaled,0,0,0])
 
-      # small orientation correction from torque
-      local rot = orientation_correction(T_tcp, Fz)
+      # apply orientation correction (will be [0,0,0] in DEBUG_MODE)
       if (rot[0] != 0.0) or (rot[1] != 0.0):
         target_pose = pose_trans(target_pose, p[0,0,0, rot[0], rot[1], rot[2]])
       end
@@ -451,383 +474,8 @@ def song():
     write_output_integer_register(0, _event_flag)
   end
 
-  stay()
-  stay()
-  
-    movej(p[d_bow_poses.frog_p[0], d_bow_poses.frog_p[1], d_bow_poses.frog_p[2], d_bow_poses.frog_p[3], d_bow_poses.frog_p[4], d_bow_poses.frog_p[5]])
-    d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_to_a()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_to_d()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_to_a()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_to_d()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 1.9979166666666666)
-  stay()
-  d_bow(0, 1.9979166666666666)
-  stay()
-  d_to_a()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_to_d()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_to_a()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_to_d()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  
-      # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
+  # $$$ CODE HERE $$$  # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
 
 end
 
 song()
-  end
-
-  def c_to_g(next_dir=0):
-    _event_flag = 119
-    write_output_integer_register(0, _event_flag)
-    string_crossing(c_bow_poses, g_bow_poses, next_dir)
-    _event_flag = 120
-    write_output_integer_register(0, _event_flag)
-  end
-
-  stay()
-  stay()
-  
-    movej(p[d_bow_poses.frog_p[0], d_bow_poses.frog_p[1], d_bow_poses.frog_p[2], d_bow_poses.frog_p[3], d_bow_poses.frog_p[4], d_bow_poses.frog_p[5]])
-    d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_to_a()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_to_d()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_to_a()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_to_d()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 1.9979166666666666)
-  stay()
-  d_bow(0, 1.9979166666666666)
-  stay()
-  d_to_a()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_to_d()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_to_a()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(0, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(1, 0.9979166666666667)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_bow(0, 1.9979166666666666)
-  stay()
-  a_to_d()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(1, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(0, 0.9979166666666667)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  d_bow(1, 1.9979166666666666)
-  stay()
-  
-      # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
-
-end

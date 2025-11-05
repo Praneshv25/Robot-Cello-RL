@@ -53,7 +53,7 @@ def song():
 
   # ---- Force-control & lever-arm parameters (tune these) ----
   global r_tool = [0.0, 0.6096, 0.0]    # [x,y,z] in meters (tool frame). Set this from frog TCP -> contact point measurement.
-  global target_force = 3.0           # desired normal force at contact (N) — tune
+  global target_force = 0.5           # desired normal force at contact (N) — tune
   global admittance_gain = 0.002      # dz = gain * (target - measured); start small
   global max_offset = 0.01            # max Z correction per step (m)
   global control_period = 0.02        # seconds per control step
@@ -128,7 +128,7 @@ def song():
     # fuse (weighted)
     local Fz_fused = fuse_alpha * Fz_proj + (1.0 - fuse_alpha) * Fz_from_tau
 
-    return [Fz_fused, T_tcp]
+    return [Fz_fused, T_tcp[0], T_tcp[1], T_tcp[2]]
   end
   # ----------------------------------------------------
 
@@ -228,7 +228,7 @@ def song():
       # measure fused Fz and torque
       local res2 = measure_fused_Fz_and_torque()
       local Fz = res2[0]
-      local T_tcp = res2[1]
+      local T_tcp = [res2[1], res2[2], res2[3]]
 
       # compute dz correction (admittance)
       local error = target_force - Fz
@@ -451,8 +451,25 @@ def song():
     write_output_integer_register(0, _event_flag)
   end
 
+  stay()
+  stay()
   # $$$ CODE HERE $$$  # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
 
 end
 
 song()
+  end
+
+  def c_to_g(next_dir=0):
+    _event_flag = 119
+    write_output_integer_register(0, _event_flag)
+    string_crossing(c_bow_poses, g_bow_poses, next_dir)
+    _event_flag = 120
+    write_output_integer_register(0, _event_flag)
+  end
+
+  stay()
+  stay()
+  # $$$ CODE HERE $$$  # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
+
+end

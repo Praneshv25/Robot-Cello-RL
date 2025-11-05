@@ -75,6 +75,9 @@ def song():
     local start_p = [tcp_pose[0], tcp_pose[1], tcp_pose[2], tcp_pose[3], tcp_pose[4], tcp_pose[5]]
     local end_p = frog_p
 
+    local tcp_force = get_tcp_force()
+    textmsg("Force: ", tcp_force)
+
     local direction_vector = (tip_p - frog_p) / norm(tip_p - frog_p)
     local t_dir = -1
     # r = r0 + vt positive t when true
@@ -208,6 +211,7 @@ def song():
     _event_flag = 101
     write_output_integer_register(0, _event_flag)
     string_crossing(a_bow_poses, d_bow_poses, next_dir)
+
     _event_flag = 102
     write_output_integer_register(0, _event_flag)
   end
@@ -284,6 +288,8 @@ def song():
     write_output_integer_register(0, _event_flag)
   end
 
+  stay()
+  stay()
   # $$$ CODE HERE $$$
   
 end

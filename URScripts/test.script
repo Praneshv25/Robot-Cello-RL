@@ -53,7 +53,7 @@ def song():
 
   # ---- Force-control & lever-arm parameters (tune these) ----
   global r_tool = [0.0, 0.6096, 0.0]    # [x,y,z] in meters (tool frame). Set this from frog TCP -> contact point measurement.
-  global target_force = 1           # desired normal force at contact (N) — tune
+  global target_force = 0.5          # desired normal force at contact (N) — tune
   global admittance_gain = 0.002      # dz = gain * (target - measured); start small
   global max_offset = 0.005            # max Z correction per step (m)
   global control_period = 0.02        # seconds per control step
@@ -555,6 +555,8 @@ def orientation_correction(T_tcp_param, Fz_fused_param):
     write_output_integer_register(0, _event_flag)
   end
 
+  stay()
+  stay()
   # $$$ CODE HERE $$$
   
 end
