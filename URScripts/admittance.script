@@ -29,6 +29,7 @@ def song():
   #   Type: External Control
   # end: URCap Installation Node
   popup("Started song()")
+  textmsg("RUN")
   global _event_flag = 0
 
   global a_bow_poses = struct(
@@ -135,37 +136,37 @@ def song():
     # ---------- orientation correction (small) ----------
     def orientation_correction(T_tcp_param, Fz_fused_param):
     # return small rotation [rx, ry, 0] in radians to reduce Tx, Ty
-    local rx = 0.0
-    local ry = 0.0
+      local rx = 0.0
+      local ry = 0.0
 
-    # define abs manually
-    if Fz_fused_param >= 0.0:
-        local absFz = Fz_fused_param
-    else:
-        local absFz = -Fz_fused_param
-    end
+      # define abs manually
+      if Fz_fused_param >= 0.0:
+          local absFz = Fz_fused_param
+      else:
+          local absFz = -Fz_fused_param
+      end
 
-    if absFz > 0.2:
-        # simple proportional: torque about X -> rotate around Y, torque about Y -> rotate around X
-        rx = -orient_comp_gain * T_tcp_param[1] / (absFz + 1e-6)
-        ry = orient_comp_gain * T_tcp_param[0] / (absFz + 1e-6)
+      if absFz > 0.2:
+          # simple proportional: torque about X -> rotate around Y, torque about Y -> rotate around X
+          rx = -orient_comp_gain * T_tcp_param[1] / (absFz + 1e-6)
+          ry = orient_comp_gain * T_tcp_param[0] / (absFz + 1e-6)
 
-        # clamp small rotation magnitudes to safe range
-        if rx > 0.05:
-        rx = 0.05
-        elif rx < -0.05:
-        rx = -0.05
-        end
+          # clamp small rotation magnitudes to safe range
+          if rx > 0.05:
+          rx = 0.05
+          elif rx < -0.05:
+          rx = -0.05
+          end
 
-        if ry > 0.05:
-        ry = 0.05
-        elif ry < -0.05:
-        ry = -0.05
-        end
-    end
+          if ry > 0.05:
+          ry = 0.05
+          elif ry < -0.05:
+          ry = -0.05
+          end
+      end
 
-    local rot_vec = [rx, ry, 0.0]
-    return rot_vec
+      local rot_vec = [rx, ry, 0.0]
+      return rot_vec
     end
     # ----------------------------------------------------
 
@@ -225,8 +226,11 @@ def song():
       # desired interpolated pose in base frame
       local interp = start_p + step_vec * i
 
+      textmsg("Run")
+
       # measure fused Fz and torque
       local res2 = measure_fused_Fz_and_torque()
+      textmsg("Oranges")
       local Fz = res2[0]
       local T_tcp = [res2[1], res2[2], res2[3]]
 
@@ -256,10 +260,14 @@ def song():
         frac = 1.0
       end
 
+      textmsg("yellow")
+
       # lever scaling: when closer to tip (frac near 1), larger lever -> scale correction down
       local lever_scale = 1.0 - 0.5 * frac   # tune this mapping if desired
 
       local dz_scaled = dz * lever_scale
+
+      textmsg("purple")
 
       # apply dz relative to TCP
       local base_pose_for_target = p[interp[0], interp[1], interp[2], interp[3], interp[4], interp[5]]
@@ -271,8 +279,10 @@ def song():
         target_pose = pose_trans(target_pose, p[0,0,0, rot[0], rot[1], rot[2]])
       end
 
+
       # command the small step using servoj for smoothness
       servoj(target_pose, servoj_acc, servoj_vel, control_period, 0.05, 300)
+      textmsg("rum")
       sync()
       i = i + 1
     end
@@ -458,18 +468,3 @@ def song():
 end
 
 song()
-  end
-
-  def c_to_g(next_dir=0):
-    _event_flag = 119
-    write_output_integer_register(0, _event_flag)
-    string_crossing(c_bow_poses, g_bow_poses, next_dir)
-    _event_flag = 120
-    write_output_integer_register(0, _event_flag)
-  end
-
-  stay()
-  stay()
-  # $$$ CODE HERE $$$  # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
-
-end
