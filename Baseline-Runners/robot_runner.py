@@ -157,13 +157,14 @@ print(note_sequence)
 function_sequence = get_function_sequence(note_sequence)
 # print(function_sequence)
 
-f = open("../URScripts/admittance.script", "r")
+f = open("../URScripts/song.script", "r")
 script = f.read()
 
 starting_pose = f'{note_sequence[0]["string"].lower()}_bow_poses.frog_p'
 
 script = script.replace("# $$$ CODE HERE $$$", f"""
     movej(p[{starting_pose}[0], {starting_pose}[1], {starting_pose}[2], {starting_pose}[3], {starting_pose}[4], {starting_pose}[5]])
+    {function_sequence}
     """)
 print(script)
 test_file = open('test.txt', "w")
