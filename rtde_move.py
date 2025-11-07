@@ -3,7 +3,7 @@ import rtde_receive
 import time
 import sounddevice as sd
 import numpy as np
-import aubio
+import librosa
 
 # --- Robot Setup ---
 ROBOT_HOST = 'localhost'  # Use 'localhost' for simulation
@@ -11,13 +11,8 @@ rtde_c = None
 rtde_r = None
 
 # --- Audio Setup ---
-samplerate = 44100
-win_s = 4096
-hop_s = 512
-tolerance = 0.8
-pitch_o = aubio.pitch("yin", win_s, hop_s, samplerate)
-pitch_o.set_unit("Hz")
-pitch_o.set_tolerance(tolerance)
+SAMPLERATE = 44100
+BUFFER_SIZE = 2048
 
 # Pitch thresholds (in Hz)
 LOW_PITCH_THRESHOLD = 200.0
@@ -31,12 +26,15 @@ def audio_callback(indata, frames, time, status):
     if status:
         print(status)
     
-    samples = np.frombuffer(indata, dtype=aubio.float_type)
-    pitch = pitch_o(samples)[0]
+    # Use librosa to detect pitch
+    pitch, _, _ = librosa.pyin(y=indata[:, 0], fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
+    
+    # Get the average pitch from the buffer
+    avg_pitch = np.nanmean(pitch)
 
-    if pitch > 0:
-        print(f"Detected pitch: {pitch:.2f} Hz")
-        move_robot(pitch)
+    if not np.isnan(avg_pitch) and avg_pitch > 0:
+        print(f"Detected pitch: {avg_pitch:.2f} Hz")
+        move_robot(avg_pitch)
 
 def move_robot(pitch):
     """Moves the robot based on the detected pitch."""
@@ -71,7 +69,7 @@ def main():
 
         # Start listening to the microphone
         print("Listening for audio...")
-        with sd.InputStream(callback=audio_callback, device=None, channels=1, samplerate=samplerate):
+        with sd.InputStream(callback=audio_callback, device=None, channels=1, samplerate=SAMPLERATE, blocksize=BUFFER_SIZE):
             print("Script is running. Press Ctrl+C to stop.")
             while True:
                 time.sleep(1)
