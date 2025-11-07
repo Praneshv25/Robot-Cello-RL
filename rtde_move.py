@@ -1,47 +1,89 @@
 import rtde_control
 import rtde_receive
 import time
+import sounddevice as sd
+import numpy as np
+import aubio
 
-# Setup robot IP
-ROBOT_HOST = 'localhost' # Using localhost for simulation, replace with actual robot IP if needed
+# --- Robot Setup ---
+ROBOT_HOST = 'localhost'  # Use 'localhost' for simulation
+rtde_c = None
+rtde_r = None
 
-try:
-    # Initialize control and receive interfaces
-    rtde_c = rtde_control.RTDEControlInterface(ROBOT_HOST)
-    rtde_r = rtde_receive.RTDEReceiveInterface(ROBOT_HOST)
+# --- Audio Setup ---
+samplerate = 44100
+win_s = 4096
+hop_s = 512
+tolerance = 0.8
+pitch_o = aubio.pitch("yin", win_s, hop_s, samplerate)
+pitch_o.set_unit("Hz")
+pitch_o.set_tolerance(tolerance)
 
-    # Get current joint angles
-    initial_q = rtde_r.getActualQ()
-    print(f"Initial joint angles: {initial_q}")
+# Pitch thresholds (in Hz)
+LOW_PITCH_THRESHOLD = 200.0
+HIGH_PITCH_THRESHOLD = 600.0
 
-    # Define a new target joint position (example: small move on the first joint)
-    target_q = initial_q[:]
-    target_q[0] += 0.1  # Small increment to the first joint
+# Movement distance (in meters)
+MOVE_DISTANCE = 0.05  # 5 cm (approx 2 inches)
 
-    print(f"Target joint angles: {target_q}")
+def audio_callback(indata, frames, time, status):
+    """This function is called for each audio block."""
+    if status:
+        print(status)
+    
+    samples = np.frombuffer(indata, dtype=aubio.float_type)
+    pitch = pitch_o(samples)[0]
 
-    # Parameters for moveJ
-    velocity = 0.5
-    acceleration = 1.5
-    blend = 0.0
+    if pitch > 0:
+        print(f"Detected pitch: {pitch:.2f} Hz")
+        move_robot(pitch)
 
-    # Move to the target position
-    print("Moving to target...")
-    rtde_c.moveJ(target_q, velocity, acceleration)
-    print("Move complete.")
+def move_robot(pitch):
+    """Moves the robot based on the detected pitch."""
+    if not rtde_c or not rtde_c.isConnected():
+        print("Robot not connected.")
+        return
 
-    # Wait a moment to observe the new position
-    time.sleep(2)
+    try:
+        current_pose = rtde_r.getActualTCPPose()
+        target_pose = current_pose[:]
 
-    # Get final joint angles to verify the move
-    final_q = rtde_r.getActualQ()
-    print(f"Final joint angles: {final_q}")
+        if pitch > HIGH_PITCH_THRESHOLD:
+            print("High pitch detected! Moving right.")
+            target_pose[1] -= MOVE_DISTANCE  # Move right (adjust axis if needed)
+            rtde_c.moveL(target_pose, 0.25, 0.5)
+        elif pitch < LOW_PITCH_THRESHOLD:
+            print("Low pitch detected! Moving left.")
+            target_pose[1] += MOVE_DISTANCE  # Move left (adjust axis if needed)
+            rtde_c.moveL(target_pose, 0.25, 0.5)
+            
+    except Exception as e:
+        print(f"Error moving robot: {e}")
 
-except Exception as e:
-    print(f"An error occurred: {e}")
 
-finally:
-    # Disconnect
-    if 'rtde_c' in locals() and rtde_c.isConnected():
-        rtde_c.disconnect()
-        print("Disconnected from the robot.")
+def main():
+    global rtde_c, rtde_r
+    try:
+        print("Connecting to robot...")
+        rtde_c = rtde_control.RTDEControlInterface(ROBOT_HOST)
+        rtde_r = rtde_receive.RTDEReceiveInterface(ROBOT_HOST)
+        print("Connected to robot.")
+
+        # Start listening to the microphone
+        print("Listening for audio...")
+        with sd.InputStream(callback=audio_callback, device=None, channels=1, samplerate=samplerate):
+            print("Script is running. Press Ctrl+C to stop.")
+            while True:
+                time.sleep(1)
+
+    except KeyboardInterrupt:
+        print("\nScript stopped by user.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        if rtde_c and rtde_c.isConnected():
+            rtde_c.disconnect()
+            print("Disconnected from the robot.")
+
+if __name__ == "__main__":
+    main()
