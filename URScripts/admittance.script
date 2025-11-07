@@ -58,7 +58,7 @@ def song():
   global admittance_gain = 0.002      # dz = gain * (target - measured); start small
   global max_offset = 0.01            # max Z correction per step (m)
   global control_period = 0.02        # seconds per control step
-  global servoj_acc = 0.3
+  global servoj_acc = 0.1
   global servoj_vel = 0.2
   global fuse_alpha = 0.8             # weight for linear Fz projection vs torque-derived estimate
   global orient_comp_gain = 0.0008    # small orientation correction gain (rad per Nm)
@@ -465,6 +465,10 @@ def song():
   stay()
   stay()
   # $$$ CODE HERE $$$  # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
+  d_bow(1, 1.9979166666666666)
+  stay()
+  d_bow(1, 1.9979166666666666)
+  stay()
 
 end
 
