@@ -71,10 +71,14 @@ def main():
         print("Listening for audio...")
         with sd.InputStream(callback=audio_callback, device=None, channels=1, samplerate=SAMPLERATE, blocksize=BUFFER_SIZE):
             print("Script is running. Press Ctrl+C to stop.")
+            # This loop keeps the main thread alive while the sounddevice callback
+            # runs in a background thread.
             while True:
                 time.sleep(1)
 
     except KeyboardInterrupt:
+        print("\nScript stopped by user.")
+    except Exception as e:
         print("\nScript stopped by user.")
     except Exception as e:
         print(f"An error occurred: {e}")

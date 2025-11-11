@@ -1,6 +1,7 @@
 def song():
   global _hidden_verificationVariable=0
-  set_tcp(p[0.028210348281514253,-0.09610723587300697,-0.09969041498611403,0.0,0.0,0.0])
+  # set_tcp(p[0.028210348281514253,-0.09610723587300697,-0.09969041498611403,0.0,0.0,0.0])
+  set_tcp(p[0.02679, 0.00802, 0.04555, 0.0, 0.0, 0.0])
   set_standard_analog_input_domain(0, 1)
   set_standard_analog_input_domain(1, 1)
   set_tool_analog_input_domain(0, 1)
@@ -59,12 +60,29 @@ def song():
     return (1.0 - cos(3.14159265359 * note_dur / 3.0)) / 2.0
   end
 
-  
+  def get_tool_z_hat():
+    local tcp = get_actual_tcp_pose()   # base-frame pose
+    local zpt = pose_trans(tcp, p[0,0,0.01,0,0,0])  # 1cm along tool Z in base frame
+    local zd = [zpt[0]-tcp[0], zpt[1]-tcp[1], zpt[2]-tcp[2]]
+    textmsg("zd: ", zd)
+    local n = norm(zd)
+    if n == 0:
+      return [0,0,1]
+    end
+    return [zd[0]/n, zd[1]/n, zd[2]/n]
+  end
   
   def bow(bow_dir, note_dur, bow_poses):
     if note_dur > 3:
       note_dur = 3
     end
+
+    local wrench = get_tcp_force() 
+    local F_tcp = [wrench[0], wrench[1], wrench[2]]
+    local T_tcp = [wrench[3], wrench[4], wrench[5]]
+
+    local z_hat = get_tool_z_hat()
+    textmsg("z_hat: ", z_hat)
 
     local dist_scale = ease_scale(note_dur)
 
