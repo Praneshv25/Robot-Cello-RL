@@ -1,7 +1,6 @@
 def song():
   global _hidden_verificationVariable=0
-  # set_tcp(p[0.028210348281514253,-0.09610723587300697,-0.09969041498611403,0.0,0.0,0.0])
-  set_tcp(p[0.02679, 0.00802, 0.04555, 0.0, 0.0, 0.0])
+  set_tcp(p[0.028210348281514253, -0.09610723587300697, -0.09969041498611403, 0.0, 0.0, 0.0])
   set_standard_analog_input_domain(0, 1)
   set_standard_analog_input_domain(1, 1)
   set_tool_analog_input_domain(0, 1)
@@ -17,10 +16,10 @@ def song():
   set_target_payload(0.260000, [0.050000, -0.008000, 0.024000], [0.000163, 0.000163, 0.000163, 0.000000, 0.000000, 0.000000])
   set_safety_mode_transition_hardness(1)
   set_gravity([0.0, 0.0, 9.82])
-  global Plane_1=p[0.32571614183608727,0.7933870146316717,0.11820742021636722,-2.208244884171713,-0.24738609815952348,-1.9195085473101943]
-  global Plane_2=p[0.3436052139151623,0.7478032414335104,0.10077839665899768,2.768545736097797,0.1284831553507919,1.3672805628273381]
-  global Plane_3=p[0.31945151854627996,0.6757990361168175,0.09459088830114093,2.7301760593116526,-0.049483824131046385,1.4252239353300047]
-  global Plane_4=p[0.3372257363094211,0.6222230974198586,0.07001667903587716,2.621672423508307,-0.12240385890263918,1.4373011913128484]
+  global Plane_1=p[0.32571614183608727, 0.7933870146316717, 0.11820742021636722, -2.208244884171713, -0.24738609815952348, -1.9195085473101943]
+  global Plane_2=p[0.3436052139151623, 0.7478032414335104, 0.10077839665899768, 2.768545736097797, 0.1284831553507919, 1.3672805628273381]
+  global Plane_3=p[0.31945151854627996, 0.6757990361168175, 0.09459088830114093, 2.7301760593116526, -0.049483824131046385, 1.4252239353300047]
+  global Plane_4=p[0.3372257363094211, 0.6222230974198586, 0.07001667903587716, 2.621672423508307, -0.12240385890263918, 1.4373011913128484]
   # begin: URCap Installation Node
   #   Source: External Control, 1.0.5, FZI Research Center for Information Technology
   #   Type: External Control
@@ -30,10 +29,11 @@ def song():
   #   Type: External Control
   # end: URCap Installation Node
   popup("Started song()")
+  textmsg("RUN")
   global _event_flag = 0
 
   global a_bow_poses = struct(
-    tip_p=[.473129539189, .413197423330, .256308427905, -1.460522581833, -2.310115543652, 1.445803824327], 
+    tip_p=[.473129539189, .413197423330, .256308427905, -1.460522581833, -2.310115543652, 1.445803824327],
     frog_p=[.300717266074, .793568239540, .099710283103, -1.543522183454, -2.354885618328, 1.346770272474]
   )
 
@@ -43,7 +43,7 @@ def song():
   )
 
   global g_bow_poses = struct(
-    tip_p=[.162016291992, .201320984957, .059414774157, -1.929772636560, -1.931323067217, .555055912517], 
+    tip_p=[.162016291992, .201320984957, .059414774157, -1.929772636560, -1.931323067217, .555055912517],
     frog_p=[.281203376642, .681662588607, .104672526365, -1.812194031755, -1.940153681829, .493747597283]
   )
 
@@ -52,54 +52,175 @@ def song():
     frog_p=[.256662516098, .610082591416, .062624387196, -1.743236422252, -1.524514092756, .163823228357]
   )
 
+  # ---- Force-control & lever-arm parameters (tune these) ----
+  global target_force = 0.5           # desired normal force at contact (N) — tune
+  global admittance_gain = 0.002      # dz = gain * (target - measured); start small
+  global max_offset = 0.01            # max Z correction per step (m)
+  global control_period = 0.02        # seconds per control step
+  global servoj_acc = 0.1
+  global servoj_vel = 0.2
+  global fuse_alpha = 0.8             # weight for linear Fz projection vs torque-derived estimate
+  global orient_comp_gain = 0.0008    # small orientation correction gain (rad per Nm)
+  global min_lever_arm = 0.05         # minimum lever arm length (m) to avoid singularity/crushing
+  global force_reduction_zone = 0.10  # distance (m) within which to reduce target force
+  # ----------------------------------------------------------
+
   def ease_scale(note_dur):
     if note_dur > 3:
-        note_dur = 3
+      note_dur = 3
     end
-
     return (1.0 - cos(3.14159265359 * note_dur / 3.0)) / 2.0
   end
 
+  # ------------------ Vector utilities ------------------
+  def dot(a, b):
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+  end
+
+  def cross(a, b):
+    return [ a[1]*b[2] - a[2]*b[1],
+             a[2]*b[0] - a[0]*b[2],
+             a[0]*b[1] - a[1]*b[0] ]
+  end
+  # ------------------------------------------------------
+
+  # ---------- compute unit tool-Z in base frame ----------
   def get_tool_z_hat():
     local tcp = get_actual_tcp_pose()   # base-frame pose
     local zpt = pose_trans(tcp, p[0,0,0.01,0,0,0])  # 1cm along tool Z in base frame
     local zd = [zpt[0]-tcp[0], zpt[1]-tcp[1], zpt[2]-tcp[2]]
-    textmsg("zd: ", zd)
     local n = norm(zd)
     if n == 0:
       return [0,0,1]
     end
     return [zd[0]/n, zd[1]/n, zd[2]/n]
   end
-  
+  # -------------------------------------------------------
+
+  # ---------- NEW: compute dynamic lever arm from current TCP to frog position -------
+  def compute_dynamic_lever_arm(frog_position):
+    # frog_position is [x, y, z, rx, ry, rz] in base frame
+    # Returns: [r_base vector, lever_arm_length]
+    local tcp = get_actual_tcp_pose()
+    local r_base = [frog_position[0] - tcp[0], 
+                    frog_position[1] - tcp[1], 
+                    frog_position[2] - tcp[2]]
+    local lever_length = norm(r_base)
+    textmsg("lever length: ", lever_length)
+    textmsg("base: ", r_base)
+    return [r_base[0], r_base[1], r_base[2], lever_length]
+  end
+  # ---------------------------------------------------------------
+
+  # ---------- measure & fuse Fz estimate with DYNAMIC lever arm ----------
+  def measure_fused_Fz_and_torque_dynamic(frog_position):
+    # frog_position: the frog_p of the current string being played
+    # returns a list: [Fz_fused (N), [Tx, Ty, Tz] (Nm), lever_arm_length (m)]
+    local wrench = get_tcp_force()   # [Fx,Fy,Fz, Tx,Ty,Tz] in base frame
+    local F_tcp = [wrench[0], wrench[1], wrench[2]]
+    local T_tcp = [wrench[3], wrench[4], wrench[5]]
+
+    # compute tool z_hat and project linear force onto it
+    local z_hat = get_tool_z_hat()
+    local Fz_proj = dot(F_tcp, z_hat)
+
+    # torque-derived estimate using DYNAMIC lever arm
+    local lever_result = compute_dynamic_lever_arm(frog_position)
+    local r_base = [lever_result[0], lever_result[1], lever_result[2]]
+    local lever_length = lever_result[3]
+    
+    local r_cross_z = cross(r_base, z_hat)
+    local denom = dot(r_cross_z, r_cross_z)
+    local Fz_from_tau = 0.0
+    
+    # Safety check: if lever arm is too small, don't trust torque estimate
+    if (denom > 1e-8) and (lever_length >= min_lever_arm):
+      Fz_from_tau = dot(T_tcp, r_cross_z) / denom
+    else:
+      Fz_from_tau = Fz_proj   # fallback to direct force measurement
+    end
+
+    # Reduce fusion weight when lever arm is small (trust direct measurement more)
+    local effective_alpha = fuse_alpha
+    if lever_length < min_lever_arm * 2.0:
+      # Linearly reduce alpha from fuse_alpha to 1.0 as we approach min_lever_arm
+      local ratio = lever_length / (min_lever_arm * 2.0)
+      effective_alpha = fuse_alpha + (1.0 - fuse_alpha) * (1.0 - ratio)
+    end
+
+    # fuse (weighted)
+    local Fz_fused = effective_alpha * Fz_proj + (1.0 - effective_alpha) * Fz_from_tau
+
+    return [Fz_fused, T_tcp[0], T_tcp[1], T_tcp[2], lever_length]
+  end
+  # ----------------------------------------------------
+
+  # ---------- orientation correction (small) ----------
+  def orientation_correction(T_tcp_param, Fz_fused_param):
+    # return small rotation [rx, ry, 0] in radians to reduce Tx, Ty
+    local rx = 0.0
+    local ry = 0.0
+
+    # define abs manually
+    if Fz_fused_param >= 0.0:
+      local absFz = Fz_fused_param
+    else:
+      local absFz = -Fz_fused_param
+    end
+
+    if absFz > 0.2:
+      # simple proportional: torque about X -> rotate around Y, torque about Y -> rotate around X
+      rx = -orient_comp_gain * T_tcp_param[1] / (absFz + 1e-6)
+      ry = orient_comp_gain * T_tcp_param[0] / (absFz + 1e-6)
+
+      # clamp small rotation magnitudes to safe range
+      if rx > 0.05:
+        rx = 0.05
+      elif rx < -0.05:
+        rx = -0.05
+      end
+
+      if ry > 0.05:
+        ry = 0.05
+      elif ry < -0.05:
+        ry = -0.05
+      end
+    end
+
+    local rot_vec = [rx, ry, 0.0]
+    return rot_vec
+  end
+  # ----------------------------------------------------
+
+  # ---------- measure force along tool Z (public helper) ----------
+  def measure_force_along_tool_z():
+    # Note: This now requires knowing which string is active
+    # For backward compatibility, we'll use a default, but ideally pass frog_position
+    local wrench = get_tcp_force()
+    local F_tcp = [wrench[0], wrench[1], wrench[2]]
+    local z_hat = get_tool_z_hat()
+    local Fz = dot(F_tcp, z_hat)
+    return Fz
+  end
+  # ----------------------------------------------------
+
+  # ---------- New bow implementation with DYNAMIC contact point ----------
   def bow(bow_dir, note_dur, bow_poses):
     if note_dur > 3:
       note_dur = 3
     end
 
-    local wrench = get_tcp_force() 
-    local F_tcp = [wrench[0], wrench[1], wrench[2]]
-    local T_tcp = [wrench[3], wrench[4], wrench[5]]
-
-    local z_hat = get_tool_z_hat()
-    textmsg("z_hat: ", z_hat)
-
     local dist_scale = ease_scale(note_dur)
 
-    local tip_p=bow_poses.tip_p
-    local frog_p=bow_poses.frog_p
-    
+    local tip_p = bow_poses.tip_p
+    local frog_p = bow_poses.frog_p
+
     local tcp_pose = get_actual_tcp_pose()
     local start_p = [tcp_pose[0], tcp_pose[1], tcp_pose[2], tcp_pose[3], tcp_pose[4], tcp_pose[5]]
     local end_p = frog_p
 
-    local tcp_force = get_tcp_force()
-    textmsg("Force: ", tcp_force)
-
     local direction_vector = (tip_p - frog_p) / norm(tip_p - frog_p)
     local t_dir = -1
-    # r = r0 + vt positive t when true
-
     local target_dist = dist_scale * norm(tip_p - frog_p)
 
     if bow_dir:
@@ -108,27 +229,104 @@ def song():
     end
 
     global ending_spot = end_p
+
     if (norm(end_p - start_p) >= target_dist):
       end_p = start_p + t_dir * direction_vector * target_dist
-      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
-      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur)
+    end
+
+    # compute time/steps
+    local total_time = note_dur
+    if total_time <= 0.0:
+      total_time = control_period
+    end
+    local steps = round(total_time / control_period)
+    if steps < 1:
+      steps = 1
+    end
+
+    local step_vec = (end_p - start_p) / steps
+
+    local i = 1
+    while i <= steps:
+      # desired interpolated pose in base frame
+      local interp = start_p + step_vec * i
+
+      textmsg("Run")
+
+      # measure fused Fz and torque using DYNAMIC lever arm from current position to frog
+      local res2 = measure_fused_Fz_and_torque_dynamic(frog_p)
+      textmsg("Oranges")
+      local Fz = res2[0]
+      local T_tcp = [res2[1], res2[2], res2[3]]
+      local lever_length = res2[4]
+
+      # Safety: reduce target force when near frog to prevent crushing
+      local effective_target_force = target_force
+      if lever_length < force_reduction_zone:
+        # Linearly reduce target force from target_force to 50% as we approach min_lever_arm
+        local safety_ratio = (lever_length - min_lever_arm) / (force_reduction_zone - min_lever_arm)
+        if safety_ratio < 0.0:
+          safety_ratio = 0.0
+        elif safety_ratio > 1.0:
+          safety_ratio = 1.0
+        end
+        effective_target_force = target_force * (0.5 + 0.5 * safety_ratio)
+      end
+
+      # compute dz correction (admittance)
+      local error = effective_target_force - Fz
+      local dz = admittance_gain * error
+
+      # clamp dz
+      if dz > max_offset:
+        dz = max_offset
+      elif dz < -max_offset:
+        dz = -max_offset
+      end
+
+      # optionally scale dz by lever-position along bow: compute fraction along bow axis (0..1)
+      local A = frog_p
+      local bow_vec = tip_p - frog_p
+      local frac = 0.0
+      local denom = dot(bow_vec, bow_vec)
+      if denom > 1e-8:
+        frac = dot(interp - A, bow_vec) / denom
+      end
+      # clamp frac 0..1
+      if frac < 0.0:
+        frac = 0.0
+      elif frac > 1.0:
+        frac = 1.0
+      end
+
+      textmsg("yellow")
+
+      # lever scaling: when closer to tip (frac near 1), larger lever -> scale correction down
+      local lever_scale = 1.0 - 0.5 * frac   # tune this mapping if desired
+
+      local dz_scaled = dz * lever_scale
+
+      textmsg("purple")
+
+      # apply dz relative to TCP
+      local base_pose_for_target = p[interp[0], interp[1], interp[2], interp[3], interp[4], interp[5]]
+      local target_pose = pose_trans(base_pose_for_target, p[0,0,dz_scaled,0,0,0])
+
+      # small orientation correction from torque
+      local rot = orientation_correction(T_tcp, Fz)
+      if (rot[0] != 0.0) or (rot[1] != 0.0):
+        target_pose = pose_trans(target_pose, p[0,0,0, rot[0], rot[1], rot[2]])
+      end
+
+      # command the small step using servoj for smoothness
+      local target_q = get_inverse_kin(target_pose)
+      servoj(target_q, servoj_acc, servoj_vel, control_period, 0.05, 300)
+      textmsg("run")
       sync()
-    elif norm(end_p - start_p) - target_dist  >= -0.025:
-      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
-      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur)
-      sync()
-    else:
-      local d1 = norm(end_p - start_p)
-      local d2 = target_dist - norm(end_p - start_p)
-      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
-      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur * d1 / target_dist)
-      sync()
-      end_p = end_p + -1 * t_dir * direction_vector * d2
-      # movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]])
-      movel(p[end_p[0], end_p[1], end_p[2], end_p[3], end_p[4], end_p[5]], t=note_dur * d2 / target_dist)
-      sync()
+      i = i + 1
     end
   end
+  # ----------------------------------------------------
 
   def stay():
     stopj(2.5)
@@ -174,9 +372,9 @@ def song():
   def round(n):
     local int_part = floor(n)
     if (n - int_part) >= 0.5:
-        return int_part + 1
+      return int_part + 1
     else:
-        return int_part
+      return int_part
     end
   end
 
@@ -196,10 +394,6 @@ def song():
     end
   end
 
-  def dot(a, b):
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-  end
-
   def string_crossing(start_bow_poses, end_bow_poses, next_dir):
     # we first find the curr position
     local tcp_pose = get_actual_tcp_pose()
@@ -207,7 +401,7 @@ def song():
 
     local out = [0.89583677, 0.04158029, 0.44243367, 0, 0, 0]
     local step1 = start_p + out * 0.03
-    
+
     movep(p[step1[0], step1[1], step1[2], start_p[3], start_p[4], start_p[5]])
     movep(p[step1[0], step1[1], step1[2], d_bow_poses.frog_p[3], d_bow_poses.frog_p[4], d_bow_poses.frog_p[5]])
     sync()
@@ -218,18 +412,14 @@ def song():
     local direction_vector = bow_vec / norm(bow_vec)
     local A = end_bow_poses.tip_p
     local target_pose = dot(start_p - A, direction_vector) / dot(direction_vector, direction_vector) * direction_vector + A
-    
 
     movep(p[target_pose[0], target_pose[1], target_pose[2], target_pose[3], target_pose[4], target_pose[5]], v=3.67)
-    # sync()
-
   end
 
   def a_to_d(next_dir=0):
     _event_flag = 101
     write_output_integer_register(0, _event_flag)
     string_crossing(a_bow_poses, d_bow_poses, next_dir)
-
     _event_flag = 102
     write_output_integer_register(0, _event_flag)
   end
@@ -487,8 +677,8 @@ def song():
   d_bow(1, 1.9979166666666666)
   stay()
   
-    
-  
+      # (you can call a_bow/d_bow/g_bow/c_bow or the crossing functions here)
+
 end
 
 song()

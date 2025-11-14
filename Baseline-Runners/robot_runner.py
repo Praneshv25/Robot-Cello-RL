@@ -157,7 +157,7 @@ print(note_sequence)
 function_sequence = get_function_sequence(note_sequence)
 # print(function_sequence)
 
-f = open("../URScripts/song.script", "r")
+f = open("../URScripts/admittance.script", "r")
 script = f.read()
 
 starting_pose = f'{note_sequence[0]["string"].lower()}_bow_poses.frog_p'
