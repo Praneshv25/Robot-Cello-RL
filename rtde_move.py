@@ -13,7 +13,7 @@ rtde_r = None
 
 # --- Audio Setup ---
 SAMPLERATE = 44100
-BUFFER_SIZE = 2048  # Buffer size for audio capture
+BUFFER_SIZE = 4096  # Larger buffer = less frequent callbacks
 
 # Note frequencies (in Hz) with tolerance
 NOTE_FREQUENCIES = {
@@ -25,9 +25,10 @@ NOTE_FREQUENCIES = {
 
 FREQUENCY_TOLERANCE = 20.0  # Hz tolerance for note detection
 
-# Movement speed (in m/s for velocity control)
-MOVE_SPEED = 0.05  # 5 cm/s
-ACCELERATION = 0.5  # m/s^2
+# Movement parameters
+MOVE_DISTANCE = 0.02  # 2 cm per note detection
+MOVE_SPEED = 0.1  # Speed for moveL (m/s)
+MOVE_ACCELERATION = 0.5  # Acceleration (m/s^2)
 
 # Track the current movement state
 current_note = None
@@ -83,44 +84,42 @@ def audio_processing_thread():
     global current_note, processing_active
     
     frame_count = 0
-    last_note = None
     last_command_time = 0
-    COMMAND_DELAY = 1  # Minimum 100ms between robot commands
+    COMMAND_DELAY = 0.3  # Minimum 300ms between robot commands for moveL
+    PROCESS_EVERY_N = 3  # Only process every 3rd frame to reduce load
     
     while processing_active:
         try:
             # Get audio data from queue with timeout
             indata = audio_queue.get(timeout=0.1)
             
+            frame_count += 1
+            
+            # Skip some frames to reduce processing load
+            if frame_count % PROCESS_EVERY_N != 0:
+                continue
+            
             # Extract audio samples
             samples = indata[:, 0]
-            frame_count += 1
             
             # Detect pitch using FFT
             detected_pitch, magnitude = detect_pitch_fft(samples)
             
-            # Calculate RMS volume for reference
-            rms = np.sqrt(np.mean(samples**2))
-            
-            # Determine if we have a valid note
-            note_str = ""
+            # Determine if we have a valid note (simplified - no extra calculations)
             if 200 < detected_pitch < 600:
                 detected_note = detect_note(detected_pitch)
-                if detected_note:
-                    note_str = f"→ Note {detected_note} ✓"
-                else:
-                    note_str = f"(no match)"
             else:
                 detected_note = None
-                note_str = "(out of range)"
-            
-            # Print debug info less frequently (every 5th frame to reduce overhead)
-            if frame_count % 5 == 0:
-                print(f"[{frame_count:4d}] Freq: {detected_pitch:6.1f} Hz  |  Mag: {magnitude:8.1f}  |  Vol: {rms:5.3f}  |  {note_str}")
             
             # Update robot movement if note changed AND enough time has passed
             current_time = time.time()
             if detected_note != current_note and (current_time - last_command_time) >= COMMAND_DELAY:
+                # Print only on changes
+                if detected_note:
+                    print(f"🎵 Note {detected_note} ({detected_pitch:.1f} Hz)")
+                else:
+                    print(f"🔇 Stopped")
+                
                 current_note = detected_note
                 move_robot(detected_note)
                 last_command_time = current_time
@@ -131,37 +130,32 @@ def audio_processing_thread():
             print(f"Error in audio processing: {e}")
 
 def move_robot(note):
-    """Moves the robot based on the detected note using velocity control."""
+    """Moves the robot based on the detected note using position-based control."""
     if not rtde_c or not rtde_c.isConnected():
-        print("Robot not connected.")
         return
 
     try:
-        # Create velocity vector [vx, vy, vz, wx, wy, wz]
-        # All velocities are in m/s for linear and rad/s for angular
-        velocity = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        # Get current position
+        current_pose = rtde_r.getActualTCPPose()
+        target_pose = current_pose[:]
         
         if note == 'A':
-            print("\n>>> 🎵 ROBOT ACTION: Moving ↑ UP\n")
-            velocity[2] = MOVE_SPEED  # Move up (positive Z)
+            target_pose[2] += MOVE_DISTANCE  # Move up (positive Z)
         elif note == 'D':
-            print("\n>>> 🎵 ROBOT ACTION: Moving ← LEFT\n")
-            velocity[1] = MOVE_SPEED  # Move left (positive Y)
+            target_pose[1] += MOVE_DISTANCE  # Move left (positive Y)
         elif note == 'G':
-            print("\n>>> 🎵 ROBOT ACTION: Moving → RIGHT\n")
-            velocity[1] = -MOVE_SPEED  # Move right (negative Y)
+            target_pose[1] -= MOVE_DISTANCE  # Move right (negative Y)
         elif note == 'C':
-            print("\n>>> 🎵 ROBOT ACTION: Moving ↓ DOWN\n")
-            velocity[2] = -MOVE_SPEED  # Move down (negative Z)
+            target_pose[2] -= MOVE_DISTANCE  # Move down (negative Z)
         else:
-            print("\n>>> 🔇 ROBOT ACTION: STOPPED\n")
+            # No note detected, no movement needed
+            return
         
-        # Use speedL for velocity-based control
-        # speedL continues until a new command is given
-        rtde_c.speedL(velocity, ACCELERATION)
+        # Use moveL for position-based control (asynchronous)
+        rtde_c.moveL(target_pose, MOVE_SPEED, MOVE_ACCELERATION, asynchronous=True)
             
     except Exception as e:
-        print(f"Error moving robot: {e}")
+        print(f"Robot error: {e}")
 
 
 def main():
@@ -197,11 +191,11 @@ def main():
         print("Stopping audio processing thread...")
         processing_thread.join(timeout=2)
         
-        # Stop the robot before disconnecting
+        # Disconnect from robot
         if rtde_c and rtde_c.isConnected():
             try:
-                print("Stopping robot movement...")
-                rtde_c.speedStop()  # Stop any velocity-based movement
+                print("Stopping robot...")
+                rtde_c.stopL()  # Stop any linear movement
             except:
                 pass
             rtde_c.disconnect()
