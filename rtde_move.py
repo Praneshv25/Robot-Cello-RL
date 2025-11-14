@@ -102,10 +102,7 @@ def audio_processing_thread():
             
             # Determine if we have a valid note
             note_str = ""
-            if magnitude < 100:  # Below threshold
-                detected_note = None
-                note_str = "(too quiet)"
-            elif 200 < detected_pitch < 600:
+            if 200 < detected_pitch < 600:
                 detected_note = detect_note(detected_pitch)
                 if detected_note:
                     note_str = f"→ Note {detected_note} ✓"
