@@ -3,7 +3,8 @@ import rtde_receive
 import time
 import sounddevice as sd
 import numpy as np
-from aubio import pitch as aubio_pitch
+import queue
+import threading
 
 # --- Robot Setup ---
 ROBOT_HOST = '10.165.11.242'  # Use 'localhost' for simulation
@@ -12,7 +13,7 @@ rtde_r = None
 
 # --- Audio Setup ---
 SAMPLERATE = 44100
-BUFFER_SIZE = 1024  # Smaller buffer for faster response
+BUFFER_SIZE = 2048  # Buffer size for audio capture
 
 # Note frequencies (in Hz) with tolerance
 NOTE_FREQUENCIES = {
@@ -31,10 +32,35 @@ ACCELERATION = 0.5  # m/s^2
 # Track the current movement state
 current_note = None
 
-# Initialize aubio pitch detector (much faster than librosa)
-pitch_detector = aubio_pitch("default", BUFFER_SIZE, BUFFER_SIZE, SAMPLERATE)
-pitch_detector.set_unit("Hz")
-pitch_detector.set_silence(-40)
+# Queue for audio processing (small queue to keep processing current)
+audio_queue = queue.Queue(maxsize=2)
+
+# Threading flag
+processing_active = True
+
+def detect_pitch_fft(audio_data):
+    """Detect pitch using FFT (Fast Fourier Transform) - fast and cross-platform."""
+    # Apply window to reduce spectral leakage
+    windowed = audio_data * np.hanning(len(audio_data))
+    
+    # Compute FFT
+    fft = np.fft.rfft(windowed)
+    magnitude = np.abs(fft)
+    
+    # Find the peak frequency
+    peak_index = np.argmax(magnitude)
+    
+    # Convert index to frequency
+    frequency = peak_index * SAMPLERATE / len(audio_data)
+    
+    # Check if the signal is strong enough (simple volume threshold)
+    if magnitude[peak_index] < 100:  # Adjust threshold as needed
+        return 0.0
+    
+    # Only return frequencies in the musical range
+    if 200 < frequency < 600:
+        return frequency
+    return 0.0
 
 def detect_note(pitch):
     """Detects which note (A, D, G, C) is being played based on pitch."""
@@ -47,33 +73,47 @@ def detect_note(pitch):
     return None
 
 def audio_callback(indata, frames, time, status):
-    """This function is called for each audio block."""
-    global current_note
-    
+    """This function is called for each audio block - just queues data, returns immediately."""
     if status:
         print(status)
     
-    # Use aubio to detect pitch (much faster than librosa)
+    # Just queue the data without processing - this returns immediately
+    # Drop frames if queue is full (keeps processing current data)
     try:
-        # Convert to float32 for aubio
-        samples = indata[:, 0].astype(np.float32)
-        
-        # Detect pitch using aubio
-        detected_pitch = pitch_detector(samples)[0]
-        
-        # Detect which note is playing
-        detected_note = detect_note(detected_pitch)
-        
-        if detected_note:
-            print(f"Detected pitch: {detected_pitch:.2f} Hz -> Note: {detected_note}")
-        
-        # Update robot movement if note changed
-        if detected_note != current_note:
-            current_note = detected_note
-            move_robot(detected_note)
+        audio_queue.put_nowait(indata.copy())
+    except queue.Full:
+        pass  # Skip this frame if queue is full
+
+def audio_processing_thread():
+    """Separate thread that processes audio without blocking RTDE control."""
+    global current_note, processing_active
+    
+    while processing_active:
+        try:
+            # Get audio data from queue with timeout
+            indata = audio_queue.get(timeout=0.1)
             
-    except Exception as e:
-        print(f"Error in audio processing: {e}")
+            # Extract audio samples
+            samples = indata[:, 0]
+            
+            # Detect pitch using FFT
+            detected_pitch = detect_pitch_fft(samples)
+            
+            # Detect which note is playing
+            detected_note = detect_note(detected_pitch)
+            
+            if detected_note:
+                print(f"Detected pitch: {detected_pitch:.2f} Hz -> Note: {detected_note}")
+            
+            # Update robot movement if note changed
+            if detected_note != current_note:
+                current_note = detected_note
+                move_robot(detected_note)
+                
+        except queue.Empty:
+            continue
+        except Exception as e:
+            print(f"Error in audio processing: {e}")
 
 def move_robot(note):
     """Moves the robot based on the detected note using velocity control."""
@@ -110,7 +150,13 @@ def move_robot(note):
 
 
 def main():
-    global rtde_c, rtde_r
+    global rtde_c, rtde_r, processing_active
+    
+    # Start the audio processing thread
+    processing_thread = threading.Thread(target=audio_processing_thread, daemon=True)
+    processing_thread.start()
+    print("Audio processing thread started.")
+    
     try:
         print("Connecting to robot...")
         rtde_c = rtde_control.RTDEControlInterface(ROBOT_HOST)
@@ -131,6 +177,11 @@ def main():
     except Exception as e:
         print(f"An error occurred: {e}")
     finally:
+        # Stop processing thread
+        processing_active = False
+        print("Stopping audio processing thread...")
+        processing_thread.join(timeout=2)
+        
         # Stop the robot before disconnecting
         if rtde_c and rtde_c.isConnected():
             try:
