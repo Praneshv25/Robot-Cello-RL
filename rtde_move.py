@@ -84,6 +84,8 @@ def audio_processing_thread():
     
     frame_count = 0
     last_note = None
+    last_command_time = 0
+    COMMAND_DELAY = 1  # Minimum 100ms between robot commands
     
     while processing_active:
         try:
@@ -112,13 +114,16 @@ def audio_processing_thread():
                 detected_note = None
                 note_str = "(out of range)"
             
-            # Print debug info
-            print(f"[{frame_count:4d}] Freq: {detected_pitch:6.1f} Hz  |  Mag: {magnitude:8.1f}  |  Vol: {rms:5.3f}  |  {note_str}")
+            # Print debug info less frequently (every 5th frame to reduce overhead)
+            if frame_count % 5 == 0:
+                print(f"[{frame_count:4d}] Freq: {detected_pitch:6.1f} Hz  |  Mag: {magnitude:8.1f}  |  Vol: {rms:5.3f}  |  {note_str}")
             
-            # Update robot movement if note changed
-            if detected_note != current_note:
+            # Update robot movement if note changed AND enough time has passed
+            current_time = time.time()
+            if detected_note != current_note and (current_time - last_command_time) >= COMMAND_DELAY:
                 current_note = detected_note
                 move_robot(detected_note)
+                last_command_time = current_time
                 
         except queue.Empty:
             continue
