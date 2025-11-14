@@ -53,14 +53,8 @@ def detect_pitch_fft(audio_data):
     # Convert index to frequency
     frequency = peak_index * SAMPLERATE / len(audio_data)
     
-    # Check if the signal is strong enough (simple volume threshold)
-    if magnitude[peak_index] < 100:  # Adjust threshold as needed
-        return 0.0
-    
-    # Only return frequencies in the musical range
-    if 200 < frequency < 600:
-        return frequency
-    return 0.0
+    # Return both frequency and magnitude for debugging
+    return frequency, magnitude[peak_index]
 
 def detect_note(pitch):
     """Detects which note (A, D, G, C) is being played based on pitch."""
@@ -88,6 +82,9 @@ def audio_processing_thread():
     """Separate thread that processes audio without blocking RTDE control."""
     global current_note, processing_active
     
+    frame_count = 0
+    last_note = None
+    
     while processing_active:
         try:
             # Get audio data from queue with timeout
@@ -95,15 +92,31 @@ def audio_processing_thread():
             
             # Extract audio samples
             samples = indata[:, 0]
+            frame_count += 1
             
             # Detect pitch using FFT
-            detected_pitch = detect_pitch_fft(samples)
+            detected_pitch, magnitude = detect_pitch_fft(samples)
             
-            # Detect which note is playing
-            detected_note = detect_note(detected_pitch)
+            # Calculate RMS volume for reference
+            rms = np.sqrt(np.mean(samples**2))
             
-            if detected_note:
-                print(f"Detected pitch: {detected_pitch:.2f} Hz -> Note: {detected_note}")
+            # Determine if we have a valid note
+            note_str = ""
+            if magnitude < 100:  # Below threshold
+                detected_note = None
+                note_str = "(too quiet)"
+            elif 200 < detected_pitch < 600:
+                detected_note = detect_note(detected_pitch)
+                if detected_note:
+                    note_str = f"→ Note {detected_note} ✓"
+                else:
+                    note_str = f"(no match)"
+            else:
+                detected_note = None
+                note_str = "(out of range)"
+            
+            # Print debug info
+            print(f"[{frame_count:4d}] Freq: {detected_pitch:6.1f} Hz  |  Mag: {magnitude:8.1f}  |  Vol: {rms:5.3f}  |  {note_str}")
             
             # Update robot movement if note changed
             if detected_note != current_note:
@@ -127,19 +140,19 @@ def move_robot(note):
         velocity = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         
         if note == 'A':
-            print("Note A detected! Moving UP.")
+            print("\n>>> 🎵 ROBOT ACTION: Moving ↑ UP\n")
             velocity[2] = MOVE_SPEED  # Move up (positive Z)
         elif note == 'D':
-            print("Note D detected! Moving LEFT.")
+            print("\n>>> 🎵 ROBOT ACTION: Moving ← LEFT\n")
             velocity[1] = MOVE_SPEED  # Move left (positive Y)
         elif note == 'G':
-            print("Note G detected! Moving RIGHT.")
+            print("\n>>> 🎵 ROBOT ACTION: Moving → RIGHT\n")
             velocity[1] = -MOVE_SPEED  # Move right (negative Y)
         elif note == 'C':
-            print("Note C detected! Moving DOWN.")
+            print("\n>>> 🎵 ROBOT ACTION: Moving ↓ DOWN\n")
             velocity[2] = -MOVE_SPEED  # Move down (negative Z)
         else:
-            print("No recognized note. Stopping.")
+            print("\n>>> 🔇 ROBOT ACTION: STOPPED\n")
         
         # Use speedL for velocity-based control
         # speedL continues until a new command is given
