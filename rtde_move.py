@@ -3,7 +3,7 @@ import rtde_receive
 import time
 import sounddevice as sd
 import numpy as np
-import librosa
+from aubio import pitch as aubio_pitch
 
 # --- Robot Setup ---
 ROBOT_HOST = '10.165.11.242'  # Use 'localhost' for simulation
@@ -12,7 +12,7 @@ rtde_r = None
 
 # --- Audio Setup ---
 SAMPLERATE = 44100
-BUFFER_SIZE = 2048
+BUFFER_SIZE = 1024  # Smaller buffer for faster response
 
 # Note frequencies (in Hz) with tolerance
 NOTE_FREQUENCIES = {
@@ -31,9 +31,14 @@ ACCELERATION = 0.5  # m/s^2
 # Track the current movement state
 current_note = None
 
+# Initialize aubio pitch detector (much faster than librosa)
+pitch_detector = aubio_pitch("default", BUFFER_SIZE, BUFFER_SIZE, SAMPLERATE)
+pitch_detector.set_unit("Hz")
+pitch_detector.set_silence(-40)
+
 def detect_note(pitch):
     """Detects which note (A, D, G, C) is being played based on pitch."""
-    if np.isnan(pitch) or pitch <= 0:
+    if pitch <= 0:
         return None
     
     for note, freq in NOTE_FREQUENCIES.items():
@@ -48,23 +53,19 @@ def audio_callback(indata, frames, time, status):
     if status:
         print(status)
     
-    # Use librosa to detect pitch
+    # Use aubio to detect pitch (much faster than librosa)
     try:
-        pitch, _, _ = librosa.pyin(
-            y=indata[:, 0], 
-            sr=SAMPLERATE,
-            fmin=librosa.note_to_hz('C3'), 
-            fmax=librosa.note_to_hz('C6')
-        )
+        # Convert to float32 for aubio
+        samples = indata[:, 0].astype(np.float32)
         
-        # Get the average pitch from the buffer
-        avg_pitch = np.nanmean(pitch)
+        # Detect pitch using aubio
+        detected_pitch = pitch_detector(samples)[0]
         
         # Detect which note is playing
-        detected_note = detect_note(avg_pitch)
+        detected_note = detect_note(detected_pitch)
         
         if detected_note:
-            print(f"Detected pitch: {avg_pitch:.2f} Hz -> Note: {detected_note}")
+            print(f"Detected pitch: {detected_pitch:.2f} Hz -> Note: {detected_note}")
         
         # Update robot movement if note changed
         if detected_note != current_note:
