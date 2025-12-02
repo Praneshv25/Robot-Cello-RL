@@ -15,20 +15,72 @@ rtde_r = None
 SAMPLERATE = 44100
 BUFFER_SIZE = 4096  # Larger buffer = less frequent callbacks
 
-# Note frequencies (in Hz) with tolerance
+# Note frequencies (in Hz) for octaves 3-8
+# Each octave maps to a joint (octave 3 → joint 0, octave 4 → joint 1, ..., octave 8 → joint 5)
 NOTE_FREQUENCIES = {
-    'C': 261.63,  # C4
-    'D': 293.66,  # D4
-    'G': 392.00,  # G4
-    'A': 440.00,  # A4
+    # Octave 3 -> Joint 0
+    'C3': 130.81,
+    'D3': 146.83,
+    'G3': 196.00,
+    'A3': 220.00,
+    
+    # Octave 4 -> Joint 1
+    'C4': 261.63,
+    'D4': 293.66,
+    'G4': 392.00,
+    'A4': 440.00,
+    
+    # Octave 5 -> Joint 2
+    'C5': 523.25,
+    'D5': 587.33,
+    'G5': 783.99,
+    'A5': 880.00,
+    
+    # Octave 6 -> Joint 3
+    'C6': 1046.50,
+    'D6': 1174.66,
+    'G6': 1567.98,
+    'A6': 1760.00,
+    
+    # Octave 7 -> Joint 4
+    'C7': 2093.00,
+    'D7': 2349.32,
+    'G7': 3135.96,
+    'A7': 3520.00,
+    
+    # Octave 8 -> Joint 5
+    'C8': 4186.01,
+    'D8': 4698.63,
+    'G8': 6271.93,
+    'A8': 7040.00,
 }
 
-FREQUENCY_TOLERANCE = 20.0  # Hz tolerance for note detection
+FREQUENCY_TOLERANCE = 30.0  # Hz tolerance for note detection
 
-# Movement parameters
-MOVE_DISTANCE = 0.1  # 2 cm per note detection
-MOVE_SPEED = 0.1  # Speed for moveL (m/s)
-MOVE_ACCELERATION = 0.5  # Acceleration (m/s^2)
+# Movement parameters for joints
+# C: 45 degrees counter-clockwise (negative)
+# G: 45 degrees clockwise (positive)
+# D: 15 degrees counter-clockwise (negative)
+# A: 15 degrees clockwise (positive)
+JOINT_MOVEMENTS = {
+    'C': -np.radians(45),  # 45 degrees counter-clockwise
+    'G': np.radians(45),   # 45 degrees clockwise
+    'D': -np.radians(15),  # 15 degrees counter-clockwise
+    'A': np.radians(15),   # 15 degrees clockwise
+}
+
+# Map octaves to joints
+OCTAVE_TO_JOINT = {
+    3: 0,  # Octave 3 -> Joint 0 (base)
+    4: 1,  # Octave 4 -> Joint 1 (shoulder)
+    5: 2,  # Octave 5 -> Joint 2 (elbow)
+    6: 3,  # Octave 6 -> Joint 3 (wrist 1)
+    7: 4,  # Octave 7 -> Joint 4 (wrist 2)
+    8: 5,  # Octave 8 -> Joint 5 (wrist 3)
+}
+
+MOVE_SPEED = 0.5      # Speed for joint movement (rad/s)
+MOVE_ACCELERATION = 1.0  # Acceleration (rad/s^2)
 
 # Track the current movement state
 current_note = None
@@ -58,7 +110,7 @@ def detect_pitch_fft(audio_data):
     return frequency, magnitude[peak_index]
 
 def detect_note(pitch):
-    """Detects which note (A, D, G, C) is being played based on pitch."""
+    """Detects which note is being played based on pitch."""
     if pitch <= 0:
         return None
     
@@ -85,7 +137,7 @@ def audio_processing_thread():
     
     frame_count = 0
     last_command_time = 0
-    COMMAND_DELAY = 0.3  # Minimum 300ms between robot commands for moveL
+    COMMAND_DELAY = 0.3  # Minimum 300ms between robot commands
     PROCESS_EVERY_N = 3  # Only process every 3rd frame to reduce load
     
     while processing_active:
@@ -105,8 +157,9 @@ def audio_processing_thread():
             # Detect pitch using FFT
             detected_pitch, magnitude = detect_pitch_fft(samples)
             
-            # Determine if we have a valid note (simplified - no extra calculations)
-            if 200 < detected_pitch < 600:
+            # Determine if we have a valid note
+            # Expanded range to cover octaves 3-8
+            if 100 < detected_pitch < 8000:
                 detected_note = detect_note(detected_pitch)
             else:
                 detected_note = None
@@ -116,9 +169,14 @@ def audio_processing_thread():
             if detected_note != current_note and (current_time - last_command_time) >= COMMAND_DELAY:
                 # Print only on changes
                 if detected_note:
-                    print(f"🎵 Note {detected_note} ({detected_pitch:.1f} Hz)")
+                    # Extract note name and octave
+                    note_name = detected_note[0]  # C, D, G, or A
+                    octave = int(detected_note[1])  # 3-8
+                    joint_num = OCTAVE_TO_JOINT[octave]
+                    movement = np.degrees(JOINT_MOVEMENTS[note_name])
+                    print(f"🎵 Note {detected_note} ({detected_pitch:.1f} Hz) → Joint {joint_num} moving {movement:.1f}°")
                 else:
-                    print(f"🔇 Stopped")
+                    print(f"🔇 No note detected")
                 
                 current_note = detected_note
                 move_robot(detected_note)
@@ -130,29 +188,31 @@ def audio_processing_thread():
             print(f"Error in audio processing: {e}")
 
 def move_robot(note):
-    """Moves the robot based on the detected note using position-based control."""
+    """Moves the robot joint based on the detected note."""
     if not rtde_c or not rtde_c.isConnected():
         return
 
+    if note is None:
+        return
+
     try:
-        # Get current position
-        current_pose = rtde_r.getActualTCPPose()
-        target_pose = current_pose[:]
+        # Parse the note to get note name and octave
+        note_name = note[0]  # C, D, G, or A
+        octave = int(note[1])  # 3-8
         
-        if note == 'A':
-            target_pose[2] += MOVE_DISTANCE  # Move up (positive Z)
-        elif note == 'D':
-            target_pose[1] += MOVE_DISTANCE  # Move left (positive Y)
-        elif note == 'G':
-            target_pose[1] -= MOVE_DISTANCE  # Move right (negative Y)
-        elif note == 'C':
-            target_pose[2] -= MOVE_DISTANCE  # Move down (negative Z)
-        else:
-            # No note detected, no movement needed
-            return
+        # Get the joint to move and the movement amount
+        joint_index = OCTAVE_TO_JOINT[octave]
+        movement = JOINT_MOVEMENTS[note_name]
         
-        # Use moveL for position-based control (asynchronous)
-        rtde_c.moveL(target_pose, MOVE_SPEED, MOVE_ACCELERATION, asynchronous=True)
+        # Get current joint positions
+        current_joints = rtde_r.getActualQ()
+        target_joints = list(current_joints)
+        
+        # Update the target joint position
+        target_joints[joint_index] += movement
+        
+        # Use moveJ for joint-based control (asynchronous)
+        rtde_c.moveJ(target_joints, MOVE_SPEED, MOVE_ACCELERATION, asynchronous=True)
             
     except Exception as e:
         print(f"Robot error: {e}")
@@ -171,6 +231,17 @@ def main():
         rtde_c = rtde_control.RTDEControlInterface(ROBOT_HOST)
         rtde_r = rtde_receive.RTDEReceiveInterface(ROBOT_HOST)
         print("Connected to robot.")
+        
+        # Print joint mapping information
+        print("\n=== Joint Mapping ===")
+        for octave in range(3, 9):
+            joint = OCTAVE_TO_JOINT[octave]
+            print(f"Octave {octave} → Joint {joint}")
+        
+        print("\n=== Movement per Note ===")
+        for note, movement in JOINT_MOVEMENTS.items():
+            print(f"{note}: {np.degrees(movement):.1f}° ({'clockwise' if movement > 0 else 'counter-clockwise'})")
+        print()
 
         # Start listening to the microphone
         print("Listening for audio...")
@@ -195,7 +266,7 @@ def main():
         if rtde_c and rtde_c.isConnected():
             try:
                 print("Stopping robot...")
-                rtde_c.stopL()  # Stop any linear movement
+                rtde_c.stopJ()  # Stop any joint movement
             except:
                 pass
             rtde_c.disconnect()
@@ -203,3 +274,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
