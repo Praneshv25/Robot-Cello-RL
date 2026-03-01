@@ -48,3 +48,4 @@ except Exception as e:
     print(f"An error has occured: {e}")
 finally:
     rtde_c.stopScript()
+
