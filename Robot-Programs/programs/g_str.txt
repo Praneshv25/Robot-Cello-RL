@@ -1,6 +1,0 @@
- Program
-   Variables Setup
-   Robot Program
-     MoveL
-       Waypoint_1
-       Waypoint_2
