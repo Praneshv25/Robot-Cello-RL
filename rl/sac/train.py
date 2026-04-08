@@ -17,7 +17,7 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 
-from cello_env import CelloEnv, MockSoundClassifier
+from rl.sac.cello_env import CelloEnv, MockSoundClassifier
 
 
 def make_env(note: str = "A", max_steps: int = 150) -> CelloEnv:

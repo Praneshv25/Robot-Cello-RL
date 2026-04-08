@@ -25,7 +25,7 @@ from pathlib import Path
 
 from stable_baselines3 import SAC
 
-from cello_env import CelloEnv, MockSoundClassifier
+from rl.sac.cello_env import CelloEnv, MockSoundClassifier
 
 
 def play_note(

@@ -4,6 +4,9 @@ from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel
 from sklearn.preprocessing import StandardScaler
 
 class GPGate:
+    '''
+    Gaussian process (GP) gate that acts to map out a safe bow force space.
+    '''
     def __init__(self, training_data: np.ndarray, uncertainty_threshold: float = 0.1):
         """
         training_data: 2D array of shape (n_samples, 12)
@@ -40,7 +43,6 @@ class GPGate:
         y = np.zeros(len(X)) # doesn't matter (only care about one-dimensional norm)!
 
         X_scaled = self.scaler.fit_transform(X)
-
         self.gp.fit(X_scaled, y)
 
     def add_observation(self, force: np.ndarray, tcp: np.ndarray):
