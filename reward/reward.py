@@ -9,7 +9,7 @@ class Reward:
     reward signal.
     '''
     
-    def __init__(self, audio_file):
+    def __init__(self):
         self.rewards = []
         # load in CNN classification model - dummy for now
         self.classifier = SoundClassifier()
@@ -20,7 +20,7 @@ class Reward:
         self.audio_file = audio_file
 
         # get score from sound classification model
-        score = self.classifier.predict()
+        score = self.classifier.predict(audio_file)
         reward = self.calculate_reward_from_score(score)
         self.rewards.append(reward)
         return reward

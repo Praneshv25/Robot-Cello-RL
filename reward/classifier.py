@@ -8,7 +8,7 @@ class SoundClassifier:
     def __init__(self):
         pass 
 
-    def predict(self) -> float:
+    def predict(self, audio_file) -> float:
         '''
         Given raw audio data, output a score representing the quality of the bowing.
         For now, this is just a placeholder that returns a random score between 0 and 1.
