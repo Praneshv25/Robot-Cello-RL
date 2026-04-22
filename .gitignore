@@ -1,0 +1,7 @@
+robotcello/
+.vscode/
+__pycache__/
+*.pyc
+checkpoints/
+tb_logs/
+*.pt
