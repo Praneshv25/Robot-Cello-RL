@@ -12,7 +12,7 @@ Observation (16-dim):
     current_force  [15]    — commanded normal force (N)
 
 Action (1-dim):
-    delta_force    [0]     — in [-1, 1], scaled to ±MAX_DELTA_N per step
+    delta_force    [0]     — in [-1, 1], scaled to ±max_delta per step
 
 Episode = one note stroke (max_steps timesteps).
 """
@@ -31,27 +31,32 @@ class CelloEnv:
     IDX_FORCE = 15
     OBS_DIM   = 16
 
-    # Force limits
-    FORCE_MIN   = 0.3   # N //TODO
-    FORCE_MAX   = 8.0   # N //TODO
-    FORCE_INIT  = 3.0   # N //TODO
-    MAX_DELTA_N = 0.3   # N per step when action = ±1
-
     # Reward shaping weights
     W_CLASSIFIER  = 1.0
     W_FORCE_DELTA = 0.02  # penalise large force jumps
-    W_FORCE_RANGE = 0.01  # penalise drifting far from FORCE_INIT
+    W_FORCE_RANGE = 0.01  # penalise drifting far from force init
 
-    def __init__(self, classifier, max_steps: int = 150, audio_samples: int = 2205):
+    def __init__(self, classifier, policy, max_steps: int = 150, audio_samples: int = 2205):
         """
-        classifier — any object with predict(audio: np.ndarray) -> float,
-                     returning a sound quality score in [0, 1].
+        classifier — predict(audio: np.ndarray) -> float in [0, 1]
+        policy     — models.policy.Policy; provides force limits
         """
         self.classifier    = classifier
         self.max_steps     = max_steps
         self.audio_samples = audio_samples
-        self._force        = self.FORCE_INIT
-        self._step         = 0
+
+        # Force limits sourced from Policy (not hardcoded)
+        self._force_min  = policy.min_force
+        self._force_max  = policy.max_force
+        self._force_init = policy._curr_force
+        self._max_delta  = policy.max_delta
+
+        self._force       = self._force_init
+        self._step        = 0
+        self._last_hw_obs = np.zeros(15, dtype=np.float32)  # exposed for SurrogateClassifier
+
+    def set_classifier(self, classifier):
+        self.classifier = classifier
 
     # ------------------------------------------------------------------
     # Hardware stubs — override in a subclass for real hardware
@@ -75,8 +80,9 @@ class CelloEnv:
 
     def reset(self) -> np.ndarray:
         self._step  = 0
-        self._force = self.FORCE_INIT
+        self._force = self._force_init
         hw_obs      = self._get_obs()
+        self._last_hw_obs = hw_obs
         return np.append(hw_obs, self._force).astype(np.float32)
 
     def step(self, action: np.ndarray):
@@ -85,16 +91,17 @@ class CelloEnv:
         returns (obs, reward, done, info)
         """
         prev_force  = self._force
-        delta       = float(action[0]) * self.MAX_DELTA_N
-        self._force = float(np.clip(self._force + delta, self.FORCE_MIN, self.FORCE_MAX))
+        delta       = float(action[0]) * self._max_delta
+        self._force = float(np.clip(self._force + delta, self._force_min, self._force_max))
 
         self._apply_force(self._force)
 
-        hw_obs = self._get_obs()
-        obs    = np.append(hw_obs, self._force).astype(np.float32)
+        hw_obs            = self._get_obs()
+        self._last_hw_obs = hw_obs
+        obs               = np.append(hw_obs, self._force).astype(np.float32)
 
         audio  = self._get_audio()
-        score  = float(self.classifier.predict(audio))   # float in [0, 1]
+        score  = float(self.classifier.predict(audio))
         reward = self._compute_reward(score, prev_force)
 
         self._step += 1
@@ -118,5 +125,5 @@ class CelloEnv:
     def _compute_reward(self, score: float, prev_force: float) -> float:
         r_class  = self.W_CLASSIFIER  * Reward.calculate_reward_from_score(score)
         r_smooth = -self.W_FORCE_DELTA * abs(self._force - prev_force)
-        r_range  = -self.W_FORCE_RANGE * abs(self._force - self.FORCE_INIT)
+        r_range  = -self.W_FORCE_RANGE * abs(self._force - self._force_init)
         return r_class + r_smooth + r_range

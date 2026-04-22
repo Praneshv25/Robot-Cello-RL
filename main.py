@@ -7,6 +7,8 @@ import yaml
 import pickle
 from training.train import Train
 from models.gp_gate import GPGate
+from models.policy import Policy
+from models.surrogate import SurrogateModel
 
 
 def load_config(path='config.yaml'):
@@ -27,12 +29,14 @@ def load_gp_gate():
         return None
 
 
-def load_gp_warmup():
+def load_warmup():
+    """Load warmup observations and their sound scores."""
     try:
-        with open('warmup_data.npy', 'rb') as f:
-            return np.load(f)
-    except FileNotFoundError:
-        raise Exception("warmup_data.npy not found.")
+        data   = np.load('warmup_data.npy')
+        scores = np.load('warmup_scores.npy')
+        return data, scores
+    except FileNotFoundError as e:
+        raise Exception(f"Warmup file not found: {e}")
     except Exception as e:
         raise Exception(f"Error loading warmup data: {e}")
 
@@ -40,10 +44,14 @@ def load_gp_warmup():
 if __name__ == "__main__":
     config = load_config()
 
-    warmup_data = load_gp_warmup()
+    warmup_data, warmup_scores = load_warmup()
+
     gp_gate = load_gp_gate()
     if gp_gate is None:
         gp_gate = GPGate(warmup_data, uncertainty_threshold=config["gp_uncertainty_threshold"])
 
-    trainer = Train(gp=gp_gate, config=config)
+    policy    = Policy(config['policy_params'])
+    surrogate = SurrogateModel(warmup_data, warmup_scores)
+
+    trainer = Train(gp=gp_gate, policy=policy, surrogate=surrogate, config=config)
     trainer.train()

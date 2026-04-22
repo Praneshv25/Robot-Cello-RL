@@ -1,9 +1,19 @@
-gp_uncertainty_threshold: 0.1
+policy_params:
+  force:
+    init: 3.0
+    max: 8.0
+    min: 0.3
+    max_delta: 0.3
+
+gp_uncertainty_threshold: 0.1   # starting threshold
+gp:
+  refit_every: 20                # episodes between GP refits
+  threshold_final: 0.3           # threshold to anneal toward by end of training
 
 training:
   episodes: 500
   max_steps_per_episode: 150
-  random_steps: 1000       # pure-random exploration before SAC updates begin
+  random_steps: 1000             # steps using surrogate classifier before switching to real
   save_every: 50
   checkpoint_dir: checkpoints
 
@@ -14,3 +24,7 @@ sac:
   buffer_size: 100000
   batch_size: 256
   hidden: 256
+
+surrogate:
+  refit_every: 10                # episodes between surrogate MLP refits
+  virtual_updates: 4             # extra SAC gradient steps per real robot step
