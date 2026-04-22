@@ -1,99 +1,68 @@
 """
 infer.py
 
-Inference loop — mirrors the pseudocode from the spec:
+Run a trained SAC policy for one note stroke on the live robot.
 
-    i = 0
-    while note has not ended:
-        obs          = get_observation()
-        force_change = model.predict(obs)
-        rtde.set_force(force_change)
-        play(); i++
-
-In practice, all of that (get_obs → predict → set_force → classifier)
-is encapsulated in env.step(), so the loop stays clean.
-
-Swap MockSoundClassifier for your real classifier and subclass CelloEnv
-to wire in real RTDE + audio capture (_get_obs, _get_audio, _apply_force).
+    obs = env.reset()
+    while not done:
+        action          = agent.select_action(obs)   # delta force in [-1, 1]
+        obs, _, done, _ = env.step(action)           # applies force, reads RTDE, scores audio
 
 Usage:
-    python infer.py --model checkpoints/best/best_model --note A --steps 150
+    python -m rl.sac.infer --model checkpoints/sac_final
+    python -m rl.sac.infer --model checkpoints/sac_ep0200 --steps 150 --note A
 """
 
 import argparse
+import sys
 from pathlib import Path
 
-from stable_baselines3 import SAC
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rl.sac.cello_env import CelloEnv, MockSoundClassifier
+from rl.sac.cello_env import CelloEnv
+from rl.sac.sac_agent import SAC
+from reward.classifier import SoundClassifier
 
 
-def play_note(
-    model: SAC,
-    env: CelloEnv,
-    max_steps: int = 150,
-    verbose: bool = True,
-) -> dict:
-    """
-    Play one note stroke using the trained SAC policy.
-    Returns the final info dict.
-    """
-    obs, _ = env.reset()
-    i = 0
+def play_note(agent: SAC, env: CelloEnv, verbose: bool = True) -> dict:
+    obs  = env.reset()
+    done = False
+    info = {}
 
-    while i < max_steps:
-        # ── This is the loop from the spec ──────────────────────────────
-        # obs already contains: tcp_pose, force_torque, speed, accel,
-        #                       bow_position, current_force
-
-        force_change, _ = model.predict(obs, deterministic=True)
-        # force_change is a 1-dim array: normalised delta in [-1, 1]
-        # env.step internally: scales → clips → applies via _apply_force
-        #                      gets new obs → classifies audio → computes reward
-
-        obs, reward, terminated, truncated, info = env.step(force_change)
-        # ────────────────────────────────────────────────────────────────
+    while not done:
+        action             = agent.select_action(obs, deterministic=True)
+        obs, _, done, info = env.step(action)
 
         if verbose:
             print(
-                f"  step {i:03d} | "
-                f"force={info['force']:.3f} N | "
-                f"{info['label']} {info['confidence']:.0%} | "
-                f"reward={info['reward']:+.3f}"
+                f"  step {info['step']:03d} | "
+                f"force {info['force']:.3f} N | "
+                f"score {info['score']:.3f} | "
+                f"reward {info['reward']:+.3f}"
             )
-
-        i += 1
-        if terminated or truncated:
-            break
 
     return info
 
 
 def main(args):
-    model_path = Path(args.model)
-    if not model_path.with_suffix(".zip").exists():
-        raise FileNotFoundError(f"No model found at {model_path}.zip")
+    model_path = args.model
+    if not Path(model_path + ".pt").exists():
+        raise FileNotFoundError(f"No checkpoint at {model_path}.pt")
 
-    model = SAC.load(str(model_path))
-    print(f"Loaded model: {model_path}")
+    env   = CelloEnv(classifier=SoundClassifier(), max_steps=args.steps)
+    agent = SAC(obs_dim=CelloEnv.OBS_DIM, act_dim=1)
+    agent.load(model_path)
+    print(f"Loaded: {model_path}.pt\n")
 
-    # Use MockSoundClassifier for offline testing.
-    # Replace with your real classifier for hardware deployment.
-    classifier = MockSoundClassifier()
-    env = CelloEnv(classifier=classifier, max_steps=args.steps)
-
-    print(f"\nPlaying note {args.note} for up to {args.steps} steps ...\n")
-    info = play_note(model, env, max_steps=args.steps, verbose=args.verbose)
-
-    print(f"\nDone. Final force: {info['force']:.3f} N | "
-          f"Last classifier: {info['label']} {info['confidence']:.0%}")
-
-    env.close()
+    print(f"Playing note {args.note} for up to {args.steps} steps ...\n")
+    info = play_note(agent, env, verbose=args.verbose)
+    print(f"\nDone. force={info['force']:.3f} N | score={info['score']:.3f}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model",   type=str, default="checkpoints/best/best_model")
+    parser.add_argument("--model",   type=str, default="checkpoints/sac_final",
+                        help="Checkpoint path (omit .pt)")
     parser.add_argument("--note",    type=str, default="A", choices=["A", "D", "G", "C"])
     parser.add_argument("--steps",   type=int, default=150)
     parser.add_argument("--verbose", action="store_true", default=True)

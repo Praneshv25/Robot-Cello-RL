@@ -1,0 +1,16 @@
+gp_uncertainty_threshold: 0.1
+
+training:
+  episodes: 500
+  max_steps_per_episode: 150
+  random_steps: 1000       # pure-random exploration before SAC updates begin
+  save_every: 50
+  checkpoint_dir: checkpoints
+
+sac:
+  lr: 3.0e-4
+  gamma: 0.99
+  tau: 0.005
+  buffer_size: 100000
+  batch_size: 256
+  hidden: 256
