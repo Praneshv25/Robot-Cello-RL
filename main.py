@@ -5,7 +5,7 @@ Initializes all training parameters, models, and calls training when done.
 import numpy as np
 import yaml
 import pickle
-from training.train import Train
+from training.training_loop import TrainingLoop
 from models.gp_gate import GPGate
 from models.policy import Policy
 from models.surrogate import SurrogateModel
@@ -53,5 +53,5 @@ if __name__ == "__main__":
     policy    = Policy(config['policy_params'])
     surrogate = SurrogateModel(warmup_data, warmup_scores)
 
-    trainer = Train(gp=gp_gate, policy=policy, surrogate=surrogate, config=config)
+    trainer = TrainingLoop(gp=gp_gate, policy=policy, surrogate=surrogate, config=config)
     trainer.train()

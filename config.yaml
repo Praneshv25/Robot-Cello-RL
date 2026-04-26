@@ -1,30 +1,58 @@
+gp:
+  uncertainty_threshold: 0.1       # start conservative — low threshold = more rejections early on
+                                    # annealed upward over time as GP accumulates data
+  retrain_every_n_real: 10         # retrain GP every N real robot executions
+  anneal_every_n: 20               # increase threshold every N real executions
+  anneal_increment: 0.05           # how much to increase threshold per anneal step
+  threshold_max: 0.5               # cap on how high threshold can go
+
+rl:
+  algorithm: "SAC"                 # SAC or PPO — swap here, nothing else changes
+  total_episodes: 10               # number of full bow strokes to train for
+  gp_rejection_penalty: -10.0      # negative reward added to replay buffer on GP rejection
+                                    # so SAC learns to avoid unsafe forces
+
 policy_params:
   force:
-    init: 3.0
-    max: 8.0
-    min: 0.3
-    max_delta: 0.3
-
-gp_uncertainty_threshold: 0.1   # starting threshold
-gp:
-  refit_every: 20                # episodes between GP refits
-  threshold_final: 0.3           # threshold to anneal toward by end of training
-
-training:
-  episodes: 500
-  max_steps_per_episode: 150
-  random_steps: 1000             # steps using surrogate classifier before switching to real
-  save_every: 50
-  checkpoint_dir: checkpoints
+    min: -10.0                     # minimum allowable z-force (N)
+    max: 10.0                      # maximum allowable z-force (N)
 
 sac:
-  lr: 3.0e-4
-  gamma: 0.99
-  tau: 0.005
-  buffer_size: 100000
-  batch_size: 256
-  hidden: 256
+  hidden: 256                      # hidden layer size for actor and critic networks
+  lr: 0.0003                       # learning rate for actor, critic, and alpha optimizers
+  gamma: 0.99                      # discount factor — how much future rewards are valued
+  tau: 0.005                       # soft update rate for target critic
+                                    # small value = stable but slow target updates
+  batch_size: 32                   # number of transitions sampled per update step
+  buffer_size: 10000               # max transitions stored in replay buffer
+                                    # oldest transitions overwritten when full
 
-surrogate:
-  refit_every: 10                # episodes between surrogate MLP refits
-  virtual_updates: 4             # extra SAC gradient steps per real robot step
+robot:
+  ip: "192.168.1.100"              # robot controller IP address
+  rtde_port: 30002                 # RTDE communication port
+  iterations_per_interval: 100    # RTDE iterations per force interval
+  intervals_per_note: 5           # number of force intervals per episode
+                                    # total iterations per episode = 100 * 5 = 500
+  force_axis: 2                   # z-axis index (0=x, 1=y, 2=z)
+
+force:
+  min: -10.0                       # hard minimum force limit — last line of defense
+  max: 10.0                        # hard maximum force limit — last line of defense
+  max_delta: 1.0                   # max change in force per interval (rate limiting)
+  initial: 0.5                     # safe starting force for first episode
+                                    # used before any SAC updates have occurred
+
+audio:
+  sample_rate: 44100               # .wav recording sample rate (Hz)
+  interval_duration: 0.1           # seconds per interval (1/10 of a note)
+  note_duration: 1.0               # full note duration in seconds
+
+latency:
+  estimation_window: 20            # rolling average window for latency estimation
+                                    # not yet active — placeholder for future use
+
+warmup:
+  n_samples: 200                   # number of warm-up samples collected offline
+                                    # used to initialize GP before RL training begins
+  data_path: "data/warmup.npy"     # path to pre-collected warm-up data
+  gp_path: "data/gp_warmup.pkl"   # path to pre-fitted GP gate saved to disk
