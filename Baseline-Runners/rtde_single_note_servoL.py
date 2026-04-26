@@ -9,11 +9,16 @@ import pandas as pd
 import mido
 from mido import MidiFile
 
+
+
 #import robot_runner_rtde
 
 ROBOT_IP = "10.165.11.242"
 
 try: 
+    global spd
+    global acceleration
+
     rtde_c = rtde_control.RTDEControlInterface(ROBOT_IP)
     rtde_r = rtde_receive.RTDEReceiveInterface(ROBOT_IP)
 
@@ -129,7 +134,7 @@ try:
         if dist_to_end >= target_dist:
             new_xyz = tcp_pose[:3] + (t_dir * direction_vector *target_dist)
             move_p = np.concatenate([new_xyz, target_pose[3:]])
-            spd,accel = get_motion_params(target_dist, note_dur)
+            spd,acceleration = get_motion_params(target_dist, note_dur)
             #print(note_dur)
             #rtde_c.moveL(move_p.tolist(), speed = spd, acceleration = accel)#time= note_dur)
 
@@ -174,7 +179,7 @@ try:
             
 
             dataList[8] = spd
-            dataList[9] = accel
+            dataList[9] = acceleration
             pd.DataFrame([dataList]).to_csv("rtdeTestOne.csv", mode = "a", header = False, index = False) # A
 
             print(f'type: {[type(i) for i in move_p.tolist()]}')
@@ -188,7 +193,7 @@ try:
             rtde_c.servoJ(j_pos, time = float(note_dur), lookahead_time = 0.05, gain = 300.0)
 """
         elif (dist_to_end - target_dist) >= -0.025:
-            spd, accel = get_motion_params(dist_to_end, note_dur)
+            spd, acceleration = get_motion_params(dist_to_end, note_dur)
             #print(note_dur)
             #rtde_c.moveL(target_pose.tolist(), speed = spd, acceleration = accel)#time = note_dur)
             freq = 500.0
@@ -229,7 +234,7 @@ try:
 
 
             dataList[8] = spd
-            dataList[9] = accel
+            dataList[9] = acceleration
             pd.DataFrame([dataList]).to_csv("rtdeTestOne.csv", mode = "a", header = False, index = False) # A
 
 
@@ -249,6 +254,8 @@ try:
             time_a = note_dur * (d1 / target_dist)
             time_b = note_dur * (d2 / target_dist)
             spd1, accel1 = get_motion_params(d1, time_a)
+            spd = spd1
+            acceleration = accel1
             print(f'type: {[type(i) for i in target_pose.tolist()]}')
             
             #rtde_c.moveL(target_pose.tolist(), speed = spd1, acceleration = accel1)#time = time_a)
@@ -310,6 +317,8 @@ try:
             move_p_final = np.concatenate([new_xyz, target_pose[3:]])
             
             spd2, accel2 = get_motion_params(d2, time_b)
+            spd = spd2
+            acceleration = accel2
             #rtde_c.moveL(move_p_final.tolist(), speed = spd2, acceleration = accel2)#time = time_b)
             freq = 500.0
             dt = 1.0 / freq
@@ -320,6 +329,7 @@ try:
             stepVector = (move_p_final - tcp_pose) / steps
             print(f"\nStep Vector: {stepVector}\n")
             currentTarget = rtde_r.getActualTCPPose() #tcp_pose.copy() Line Pranesh found. Think it causes the "jump"
+            #currentTarget = tcp_pose.copy()
             force = 6
 
             for i in range(steps):
@@ -552,7 +562,7 @@ try:
         time += 480
         """
         while x < 10:
-            notes[x] = {'number': 50, 'note': 'A3', 'duration': 1.3, 'string': 'A', 'start_time': time, 'end_time': time + 479}
+            notes[x] = {'number': 50, 'note': 'A3', 'duration': 1, 'string': 'A', 'start_time': time, 'end_time': time + 479}
             x += 1
             time += 480
         
